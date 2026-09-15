@@ -5,8 +5,8 @@
 Daggerer exposes four API functions:
 
 - `build-only` builds an input `Dockerfile` with [`Directory.DockerBuild`][dagger-build] and returns a cached [`Container`][dagger-container].
-- `build` validates registry authentication, calls `build-only`, and publishes the image. TODO: link to dagger.io documentation specifically for with registry auth and publish()
-- `deploy` connects to a target `ssh` server, pulls an existing image uses `docker compose up -d` to serve the image. 
+- `build` validates registry authentication, calls `build-only`, applies [`WithRegistryAuth`](https://docs.dagger.io/reference/api/container#withRegistryAuth), and [`Publish`](https://docs.dagger.io/reference/api/container#publish) publishes the image.
+- `deploy` connects to a target SSH server, pulls an existing image, and uses Compose to serve the image.
 - `release` calls `build` and then `deploy` with the same registry, application name, and tag simplifying the top level API.
 
 ```bash
@@ -44,7 +44,7 @@ Daggerer needs a `Dockerfile` to build the application. `deploy` and `release` a
 
 `build-only` and `build` do not require `docker` or `podman`, they use the Dagger Engine directly.
 
-Create a self-hosted runner for the application repository at `https://github.com/<owner>/<repo>/settings/actions/runners/new`. The examples will use a VPS with the labels `[self-hosted, linux, x64]` which [is simlar to AWS EC2 instance](### LINK TO IT).
+Create a self-hosted runner for the application repository at `https://github.com/<owner>/<repo>/settings/actions/runners/new`. The examples use a Linux x64 VPS selected by `[self-hosted, linux, x64]`, comparable to a basic [Amazon EC2 instance](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/EC2_GetStarted.html).
 
 Install and start the runner service from the directory the runner is in:
 
@@ -65,7 +65,7 @@ Our example environment looks like this:
 tree layout of the filesystem that does verything, INCLUDING the selghosted runner
 ├
 ```
-- `$HOME/actions/secrets/deploy_key` is authorized for `ssh`, [you should use `ssh-keygen` for this](LINK TO IT)
+- `$HOME/actions/secrets/deploy_key` is authorized for SSH; create it with [`ssh-keygen`](https://man.openbsd.org/ssh-keygen).
 - `$HOME/actions/secrets/known_hosts` contains the verified SSH host key for `runner.example.com`.
 - `$HOME/actions/secrets/registry_password` contains a registry token with push and pull access.
 
@@ -75,7 +75,7 @@ Place this file at `/home/runner/apps/my-app/compose.yml`:
 services:
   app:
     image: ${APP_IMAGE:?APP_IMAGE is required}
-    restart: unless-stopp
+    restart: unless-stopped
     ports:
       - "5000:5000"
 ```
@@ -84,14 +84,7 @@ The application must listen on port `5000` inside its container. The service is 
 
 > In production I use [`caddy`](https://caddyserver.com/docs/quick-starts/reverse-proxy) (simplified replacement for [`nginx`](https://docs.nginx.com/nginx/admin-guide/web-server/reverse-proxy/)) as a reverse proxy.
 
-Add these GitHub Actions secrets:
-
-| Secret | Value |
-| --- | --- |
-| `REGISTRY_USERNAME` | Registry username |
-| `SSH_TARGET` | `runner@runner.example.com` |
-
-The remaining credentials stay in files readable only by the runner user. This workflow passes every Daggerer argument directly at the call site:
+Add `REGISTRY_USERNAME` and `SSH_TARGET` as GitHub Actions secrets. GitHub injects their values into the workflow, which passes them directly to Daggerer's string arguments. Passwords, private keys, and `known_hosts` stay in runner-local files because Daggerer accepts those arguments as typed Dagger Secrets through `file://`.
 
 ```yaml
 name: Release
@@ -230,7 +223,7 @@ jobs:
             --tag="$GITHUB_SHA" \
             --registry-username='${{ secrets.REGISTRY_USERNAME }}' \
             --registry-password=file://$HOME/actions/secrets/registry_password \
-            --ssh-target='runner@runner.example.com' \
+            --ssh-target='${{ secrets.STAGING_SSH_TARGET }}' \
             --ssh-key=file://$HOME/actions/secrets/staging_deploy_key \
             --known-hosts=file://$HOME/actions/secrets/staging_known_hosts \
             --deploy-directory="apps/${GITHUB_REPOSITORY##*/}/staging" \
@@ -247,7 +240,7 @@ jobs:
 
 Production uses the same runner to build and publish, then SSHes to another server where Docker runs the application.
 
-Add `PRODUCTION_SSH_TARGET` as a GitHub Actions secret with a value such as `deploy@prod.example.com`.
+Add `PRODUCTION_SSH_TARGET` as a GitHub Actions secret containing the production SSH destination, such as `deploy@prod.example.com`.
 
 ```yaml
 name: Deploy production
@@ -442,4 +435,3 @@ The installed module is namespaced as `daggerer`; the `-W` form selects Daggerer
 [dagger-container]: https://docs.dagger.io/reference/api/container
 [dagger-publish]: https://docs.dagger.io/reference/api/container#publish
 [dagger-secret]: https://docs.dagger.io/reference/api/secret
-
