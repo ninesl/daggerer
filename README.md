@@ -108,32 +108,23 @@ permissions:
 jobs:
   release:
     runs-on: [self-hosted, linux, x64]
-    env:
-      APP_NAME: ${{ github.event.repository.name }}
-      REGISTRY_URL: registry.example.com/team
-      REGISTRY_USERNAME: registry-user
-      SSH_TARGET: runner@runner.example.com
     steps:
       - uses: actions/checkout@v5
         with:
           persist-credentials: false
 
       - name: Build, publish, and deploy
-        shell: bash
-        run: |
-          set -euo pipefail
-          secrets_dir="$HOME/secrets-actions/$APP_NAME"
-          dagger -W github.com/ninesl/daggerer@master api call release \
-            --source=. \
-            --registry="$REGISTRY_URL" \
-            --app-name="$APP_NAME" \
-            --registry-username="$REGISTRY_USERNAME" \
-            --registry-password="file://$secrets_dir/registry_password" \
-            --ssh-target="$SSH_TARGET" \
-            --ssh-key="file://$secrets_dir/ssh_key" \
-            --known-hosts="file://$secrets_dir/known_hosts" \
-            --deploy-directory="apps/$APP_NAME" \
-            --deploy-container-runtime=docker
+        run: dagger -W github.com/ninesl/daggerer@master api call release
+          --source=.
+          --registry=registry.example.com/team
+          --app-name=${{ github.event.repository.name }}
+          --registry-username=registry-user
+          --registry-password=file://$HOME/secrets-actions/${{ github.event.repository.name }}/registry_password
+          --ssh-target=runner@runner.example.com
+          --ssh-key=file://$HOME/secrets-actions/${{ github.event.repository.name }}/ssh_key
+          --known-hosts=file://$HOME/secrets-actions/${{ github.event.repository.name }}/known_hosts
+          --deploy-directory=apps/${{ github.event.repository.name }}
+          --deploy-container-runtime=docker
 ```
 
 Each argument has one job:
@@ -248,36 +239,27 @@ permissions:
 jobs:
   release:
     runs-on: [self-hosted, linux, x64]
-    env:
-      APP_NAME: ${{ github.event.repository.name }}
-      REGISTRY_URL: registry.example.com/team
-      REGISTRY_USERNAME: registry-user
-      SSH_TARGET: runner@runner.example.com
     steps:
       - uses: actions/checkout@v5
         with:
           persist-credentials: false
 
       - name: Release to staging
-        shell: bash
-        run: |
-          set -euo pipefail
-          secrets_dir="$HOME/secrets-actions/$APP_NAME"
-          dagger -W github.com/ninesl/daggerer@master api call release \
-            --source=. \
-            --registry="$REGISTRY_URL" \
-            --app-name="$APP_NAME" \
-            --tag="$GITHUB_SHA" \
-            --registry-username="$REGISTRY_USERNAME" \
-            --registry-password="file://$secrets_dir/registry_password" \
-            --ssh-target="$SSH_TARGET" \
-            --ssh-key="file://$secrets_dir/staging_ssh_key" \
-            --known-hosts="file://$secrets_dir/staging_known_hosts" \
-            --deploy-directory="apps/$APP_NAME/staging" \
-            --deploy-container-runtime=podman
+        run: dagger -W github.com/ninesl/daggerer@master api call release
+          --source=.
+          --registry=registry.example.com/team
+          --app-name=${{ github.event.repository.name }}
+          --tag=${{ github.sha }}
+          --registry-username=registry-user
+          --registry-password=file://$HOME/secrets-actions/${{ github.event.repository.name }}/registry_password
+          --ssh-target=runner@runner.example.com
+          --ssh-key=file://$HOME/secrets-actions/${{ github.event.repository.name }}/staging_ssh_key
+          --known-hosts=file://$HOME/secrets-actions/${{ github.event.repository.name }}/staging_known_hosts
+          --deploy-directory=apps/${{ github.event.repository.name }}/staging
+          --deploy-container-runtime=podman
 ```
 
-- `--tag="$GITHUB_SHA"` gives each staging build an immutable commit-specific image tag.
+- `--tag=${{ github.sha }}` gives each staging build an immutable commit-specific image tag.
 - `--ssh-target` points back to the runner VPS using an address reachable from Dagger's container network.
 - `--ssh-key` and `--known-hosts` select the staging credentials on that same VPS.
 - `--deploy-directory` selects the staging Compose project under the runner user's home.
@@ -302,33 +284,24 @@ permissions:
 jobs:
   release:
     runs-on: [self-hosted, linux, x64]
-    env:
-      APP_NAME: ${{ github.event.repository.name }}
-      REGISTRY_URL: registry.example.com/team
-      REGISTRY_USERNAME: registry-user
-      SSH_TARGET: deploy@prod.example.com
     steps:
       - uses: actions/checkout@v5
         with:
           persist-credentials: false
 
       - name: Release to production
-        shell: bash
-        run: |
-          set -euo pipefail
-          secrets_dir="$HOME/secrets-actions/$APP_NAME"
-          dagger -W github.com/ninesl/daggerer@master api call release \
-            --source=. \
-            --registry="$REGISTRY_URL" \
-            --app-name="$APP_NAME" \
-            --tag="$GITHUB_SHA" \
-            --registry-username="$REGISTRY_USERNAME" \
-            --registry-password="file://$secrets_dir/registry_password" \
-            --ssh-target="$SSH_TARGET" \
-            --ssh-key="file://$secrets_dir/production_ssh_key" \
-            --known-hosts="file://$secrets_dir/production_known_hosts" \
-            --deploy-directory="apps/$APP_NAME/production" \
-            --deploy-container-runtime=docker
+        run: dagger -W github.com/ninesl/daggerer@master api call release
+          --source=.
+          --registry=registry.example.com/team
+          --app-name=${{ github.event.repository.name }}
+          --tag=${{ github.sha }}
+          --registry-username=registry-user
+          --registry-password=file://$HOME/secrets-actions/${{ github.event.repository.name }}/registry_password
+          --ssh-target=deploy@prod.example.com
+          --ssh-key=file://$HOME/secrets-actions/${{ github.event.repository.name }}/production_ssh_key
+          --known-hosts=file://$HOME/secrets-actions/${{ github.event.repository.name }}/production_known_hosts
+          --deploy-directory=apps/${{ github.event.repository.name }}/production
+          --deploy-container-runtime=docker
 ```
 
 - `--source`, registry arguments, `--app-name`, and `--tag` build the same application image policy as staging.
