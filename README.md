@@ -1,11 +1,31 @@
-# Daggerer
+**Daggerer** enables automation for building a `Dockerfile`, publishing the image to an OCR registry, and deploying the image hosted on that OCR registry using `ssh` and `docker compose` [with Dagger](https://dagger.io).
 
-Build, publish, and deploy an application from a self-hosted GitHub runner.
+## Quick Reference
 
-## Guide
+Daggerer exposes four API functions:
 
-- [Prerequisites](#prerequisites)
+- `build-only` builds an input `Dockerfile` with [`Directory.DockerBuild`][dagger-build] and returns a cached [`Container`][dagger-container].
+- `build` validates registry authentication, calls `build-only`, and publishes the image. TODO: link to dagger.io documentation specifically for with registry auth and publish()
+- `deploy` connects to a target `ssh` server, pulls an existing image uses `docker compose up -d` to serve the image. 
+- `release` calls `build` and then `deploy` with the same registry, application name, and tag simplifying the top level API.
+
+```bash
+dagger -W github.com/ninesl/daggerer@master api functions
+dagger -W github.com/ninesl/daggerer@master api call build-only --help
+dagger -W github.com/ninesl/daggerer@master api call build --help
+dagger -W github.com/ninesl/daggerer@master api call deploy --help
+dagger -W github.com/ninesl/daggerer@master api call release --help
+
+# The command shape is always:
+dagger -W github.com/ninesl/daggerer@master api call function --arguments
+```
+
+## Contents
+
+The documentation below uses Github Action examples on a self-hosted GitHub runner.
+
 - [Quick Reference](#quick-reference)
+- [Prerequisites](#prerequisites)
 - [Quick Start](#quick-start)
 - [Staging And Production](#staging-and-production)
 - [Build Inputs](#build-inputs)
@@ -17,16 +37,16 @@ Build, publish, and deploy an application from a self-hosted GitHub runner.
 
 > Read through the documentation before adapting an example. The examples favor [grug-brained](https://grugbrain.dev/) development and [locality of behavior](https://htmx.org/essays/locality-of-behaviour/): each workflow passes its choices directly to the Daggerer API.
 
-Daggerer needs a Dockerfile to build the application. `deploy` and `release` also require one of these combinations on the deployment host:
+Daggerer needs a `Dockerfile` to build the application. `deploy` and `release` also require one of these combinations on the deployment host:
 
 - [`docker`](https://docs.docker.com/engine/install/) and [`docker compose`](https://docs.docker.com/compose/install/linux/)
-- [`podman`](https://podman.io/docs/installation) and a provider supported by [`podman compose`](https://docs.podman.io/en/latest/markdown/podman-compose.1.html)
+- [`podman`](https://podman.io/docs/installation) and [`podman compose`](https://docs.podman.io/en/latest/markdown/podman-compose.1.html)
 
-`build-only` and `build` do not require Docker or Podman on a deployment host.
+`build-only` and `build` do not require `docker` or `podman`, they use the Dagger Engine directly.
 
-Create a self-hosted runner for the application repository at `https://github.com/<owner>/<repo>/settings/actions/runners/new`. These examples use a Linux x64 VPS selected by `[self-hosted, linux, x64]`.
+Create a self-hosted runner for the application repository at `https://github.com/<owner>/<repo>/settings/actions/runners/new`. The examples will use a VPS with the labels `[self-hosted, linux, x64]` which [is simlar to AWS EC2 instance](### LINK TO IT).
 
-Install and start the runner service from its directory:
+Install and start the runner service from the directory the runner is in:
 
 ```bash
 sudo ./svc.sh install "$USER"
@@ -34,45 +54,18 @@ sudo ./svc.sh start
 sudo ./svc.sh status
 ```
 
-[Install the Dagger CLI](https://docs.dagger.io/getting-started/install) for the Linux user that owns the runner service. Daggerer was built with Dagger `v1.0.0-beta.13`; run `dagger version` as that user to verify access to the CLI and Dagger Engine.
-
-Compose runs on the deployment host. Before releasing, create the deployment directory and Compose file under the SSH user's home. Keep SSH keys, verified `known_hosts` files, and registry credentials on the runner where `file://` can read them.
-
-## Quick Reference
-
-Daggerer exposes four API functions:
-
-- `build-only` builds a Dockerfile with [`Directory.DockerBuild`][dagger-build] and returns a cached [`Container`][dagger-container].
-- `build` checks registry authentication, calls `build-only`, and publishes the image.
-- `deploy` pulls an existing image over SSH and starts its Compose project.
-- `release` calls `build` and then `deploy` with the same registry, application name, and tag.
-
-Inspect the API directly:
-
-```bash
-dagger -W github.com/ninesl/daggerer@master api functions
-dagger -W github.com/ninesl/daggerer@master api call build-only --help
-dagger -W github.com/ninesl/daggerer@master api call build --help
-dagger -W github.com/ninesl/daggerer@master api call deploy --help
-dagger -W github.com/ninesl/daggerer@master api call release --help
-```
-
-The command shape is:
-
-```text
-dagger -W github.com/ninesl/daggerer@master api call <function> <arguments>
-```
+[Install the Dagger CLI](https://docs.dagger.io/getting-started/install) for the Linux user that owns the runner service. Daggerer was built with Dagger `v1.0.0-beta.13`; run `dagger version` as the user to verify access to the CLI and Dagger Engine.
 
 ## Quick Start
 
-This example builds and publishes the checked-out application, then deploys it back to the same VPS that runs the GitHub runner. It uses Docker, the default `Dockerfile`, the default `compose.yml`, and the default `latest` tag.
+This example builds and publishes the checked-out application, then deploys it back to the same VPS that runs the GitHub runner. It uses `docker`, the default `Dockerfile`, the default `compose.yml`, and the default `latest` tag.
 
-Assume:
-
-- The repository name is `my-app`.
-- The runner service user is `runner` on `runner.example.com`.
-- The registry is `registry.example.com/team`.
-- `$HOME/actions/secrets/deploy_key` is authorized for `runner@runner.example.com`.
+Our example environment looks like this:
+```
+tree layout of the filesystem that does verything, INCLUDING the selghosted runner
+├
+```
+- `$HOME/actions/secrets/deploy_key` is authorized for `ssh`, [you should use `ssh-keygen` for this](LINK TO IT)
 - `$HOME/actions/secrets/known_hosts` contains the verified SSH host key for `runner.example.com`.
 - `$HOME/actions/secrets/registry_password` contains a registry token with push and pull access.
 
@@ -82,12 +75,14 @@ Place this file at `/home/runner/apps/my-app/compose.yml`:
 services:
   app:
     image: ${APP_IMAGE:?APP_IMAGE is required}
-    restart: unless-stopped
+    restart: unless-stopp
     ports:
       - "5000:5000"
 ```
 
-The application must listen on port `5000` inside its container. The service is then available on port `5000` of the VPS. Put [Caddy](https://caddyserver.com/docs/quick-starts/reverse-proxy) or [NGINX](https://docs.nginx.com/nginx/admin-guide/web-server/reverse-proxy/) in front of it for a domain name and HTTPS.
+The application must listen on port `5000` inside its container. The service is then available on port `5000` of the VPS. 
+
+> In production I use [`caddy`](https://caddyserver.com/docs/quick-starts/reverse-proxy) (simplified replacement for [`nginx`](https://docs.nginx.com/nginx/admin-guide/web-server/reverse-proxy/)) as a reverse proxy.
 
 Add these GitHub Actions secrets:
 
@@ -447,3 +442,4 @@ The installed module is namespaced as `daggerer`; the `-W` form selects Daggerer
 [dagger-container]: https://docs.dagger.io/reference/api/container
 [dagger-publish]: https://docs.dagger.io/reference/api/container#publish
 [dagger-secret]: https://docs.dagger.io/reference/api/secret
+
