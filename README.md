@@ -61,9 +61,20 @@ sudo ./svc.sh status
 This example builds and publishes the checked-out application, then deploys it back to the same VPS that runs the GitHub runner. It uses `docker`, the default `Dockerfile`, the default `compose.yml`, and the default `latest` tag.
 
 Our example environment looks like this:
-```
-tree layout of the filesystem that does verything, INCLUDING the selghosted runner
-├
+
+```text
+/home/runner/
+├── actions/
+│   └── secrets/
+│       ├── deploy_key
+│       ├── known_hosts
+│       └── registry_password
+├── actions-runner/          # GitHub Actions self-hosted runner
+│   ├── run.sh
+│   └── svc.sh
+└── apps/
+    └── my-app/
+        └── compose.yml
 ```
 - `$HOME/actions/secrets/deploy_key` is authorized for SSH; create it with [`ssh-keygen`](https://man.openbsd.org/ssh-keygen).
 - `$HOME/actions/secrets/known_hosts` contains the verified SSH host key for `runner.example.com`.
@@ -177,15 +188,40 @@ secrets:
 
 Provision `runtime.env` and `secrets/app_token` independently on each host. They configure the running application and never enter the Dagger build. See Compose documentation for [`env_file`](https://docs.docker.com/reference/compose-file/services/#env_file) and [`secrets`](https://docs.docker.com/reference/compose-file/secrets/).
 
-The runner filesystem for these examples is:
+The runner VPS also hosts staging, so its filesystem contains the self-hosted runner, credentials for both targets, and the staging Compose project:
 
 ```text
-/home/runner/actions/secrets/
-├── staging_deploy_key
-├── staging_known_hosts
-├── production_deploy_key
-├── production_known_hosts
-└── registry_password
+/home/runner/
+├── actions/
+│   └── secrets/
+│       ├── staging_deploy_key
+│       ├── staging_known_hosts
+│       ├── production_deploy_key
+│       ├── production_known_hosts
+│       └── registry_password
+├── actions-runner/          # GitHub Actions self-hosted runner
+│   ├── run.sh
+│   └── svc.sh
+└── apps/
+    └── my-app/
+        └── staging/
+            ├── compose.yml
+            ├── runtime.env
+            └── secrets/
+                └── app_token
+```
+
+The external production host contains only its independently provisioned Compose project and runtime secrets:
+
+```text
+/home/deploy/
+└── apps/
+    └── my-app/
+        └── production/
+            ├── compose.yml
+            ├── runtime.env
+            └── secrets/
+                └── app_token
 ```
 
 The staging public key is authorized for the runner user on the runner VPS. The production public key is authorized for the deployment user on the external server. Each `known_hosts` file contains the verified key for only its target.
