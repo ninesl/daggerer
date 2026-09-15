@@ -28,13 +28,12 @@ Build, publish, and deploy an app from a self-hosted GitHub runner.
 
 ## Prerequisites
 
-> Read through the entire documentation first. Your application's requirements will likely differ from these examples. Review the example Daggerer pipelines below first so you understand the available options and can create the simplest pipeline for your needs.
+> Read through the entire documentation first. Your application's requirements will likely differ from these examples. Review the example Daggerer pipelines below to understand the available options to create the simplest pipeline for your needs.
 >
-> The examples favor [grug-brained simplicity](https://grugbrain.dev/) and [locality of behavior](https://htmx.org/essays/locality-of-behaviour/) so the resulting pipeline stays small and idiomatic for Dagger and Go.
-Daggerer supports `docker` and `podman` for `deploy` and `release`. Install one of these combinations on each deployment host:
+> The examples favor [grug-brained](https://grugbrain.dev/) development and utilize [locality of behavior](https://htmx.org/essays/locality-of-behaviour/) so the resulting pipeline stays small and idiomatic for Dagger and Go.
 
-- [Docker Engine](https://docs.docker.com/engine/install/) with the [Docker Compose plugin](https://docs.docker.com/compose/install/linux/)
-- [Podman](https://podman.io/docs/installation) with a provider supported by [`podman compose`](https://docs.podman.io/en/latest/markdown/podman-compose.1.html)
+
+Daggerer supports [`docker`](https://docs.docker.com/engine/install/), [`docker compose`](https://docs.docker.com/compose/install/linux/) and [`podman`](https://podman.io/docs/installation), [`podman compose`](https://docs.podman.io/en/latest/markdown/podman-compose.1.html) for `deploy` and `release`. Install one of these combinations on each deployment host:
 
 Compose runs on the deployment host. Provision the host filesystem with the SSH user's deployment directory, Compose file, runtime environment file, and application secrets. The [example workflows](#example-github-actions-workflows) show the complete runner and deployment-host layouts.
 
