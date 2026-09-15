@@ -60,10 +60,15 @@ sudo ./svc.sh status
 
 This example builds and publishes the checked-out application, then deploys it back to the same VPS that runs the GitHub runner. It uses `docker`, the default `Dockerfile`, the default `compose.yml`, and the default `latest` tag.
 
-For the Quick Start only, we use the following example filesystem. Daggerer does not require these directory names:
+For the Quick Start only, we use the following example filesystem. These paths are ordinary API inputs, not a layout required by Daggerer:
 
 ```text
 /home/runner/
+├── secrets-actions/
+│   └── my-app/
+│       ├── registry_password
+│       ├── ssh_key
+│       └── known_hosts
 ├── actions-runner/
 │   └── my-app/              # GitHub Actions self-hosted runner for my-app
 │       ├── run.sh
@@ -88,7 +93,7 @@ The application must listen on port `5000` inside its container. The service is 
 
 > In production I use [`caddy`](https://caddyserver.com/docs/quick-starts/reverse-proxy) (simplified replacement for [`nginx`](https://docs.nginx.com/nginx/admin-guide/web-server/reverse-proxy/)) as a reverse proxy.
 
-Create GitHub Actions repository secrets for the registry and `ssh` inputs. The workflow maps them into its environment. String API arguments read those environment values normally; typed Dagger `Secret` arguments use Dagger's [`env://` secret provider](https://docs.dagger.io/adopting/secrets), so they are not written to runner files.
+The example keeps credential files in `$HOME/secrets-actions/my-app` on the VPS. The runner service user must be able to read them. Typed Dagger `Secret` arguments use Dagger's [`file://` secret provider](https://docs.dagger.io/adopting/secrets). Plain string settings are declared in the workflow.
 
 ```yaml
 name: Release
@@ -105,18 +110,9 @@ jobs:
     runs-on: [self-hosted, linux, x64]
     env:
       APP_NAME: ${{ github.event.repository.name }}
-      REGISTRY_URL: ${{ secrets.REGISTRY_URL }}
-      REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}
-      REGISTRY_PASSWORD: ${{ secrets.REGISTRY_PASSWORD }}
-      SSH_TARGET: ${{ secrets.STAGING_SSH_TARGET }}
-      SSH_KEY: ${{ secrets.STAGING_SSH_KEY }}
-      KNOWN_HOSTS: ${{ secrets.STAGING_KNOWN_HOSTS }}
-      REGISTRY_URL: ${{ secrets.REGISTRY_URL }}
-      REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}
-      REGISTRY_PASSWORD: ${{ secrets.REGISTRY_PASSWORD }}
-      SSH_TARGET: ${{ secrets.SSH_TARGET }}
-      SSH_KEY: ${{ secrets.SSH_KEY }}
-      KNOWN_HOSTS: ${{ secrets.KNOWN_HOSTS }}
+      REGISTRY_URL: registry.example.com/team
+      REGISTRY_USERNAME: registry-user
+      SSH_TARGET: runner@runner.example.com
     steps:
       - uses: actions/checkout@v5
         with:
@@ -126,15 +122,16 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          secrets_dir="$HOME/secrets-actions/$APP_NAME"
           dagger -W github.com/ninesl/daggerer@master api call release \
             --source=. \
             --registry="$REGISTRY_URL" \
             --app-name="$APP_NAME" \
             --registry-username="$REGISTRY_USERNAME" \
-            --registry-password=env://REGISTRY_PASSWORD \
+            --registry-password="file://$secrets_dir/registry_password" \
             --ssh-target="$SSH_TARGET" \
-            --ssh-key=env://SSH_KEY \
-            --known-hosts=env://KNOWN_HOSTS \
+            --ssh-key="file://$secrets_dir/ssh_key" \
+            --known-hosts="file://$secrets_dir/known_hosts" \
             --deploy-directory="apps/$APP_NAME" \
             --deploy-container-runtime=docker
 ```
@@ -199,6 +196,13 @@ In this example, the runner VPS also hosts staging. We chose the following files
 
 ```text
 /home/runner/
+├── secrets-actions/
+│   └── my-app/
+│       ├── registry_password
+│       ├── staging_ssh_key
+│       ├── staging_known_hosts
+│       ├── production_ssh_key
+│       └── production_known_hosts
 ├── actions-runner/
 │   └── my-app/              # GitHub Actions self-hosted runner for my-app
 │       ├── run.sh
@@ -246,6 +250,9 @@ jobs:
     runs-on: [self-hosted, linux, x64]
     env:
       APP_NAME: ${{ github.event.repository.name }}
+      REGISTRY_URL: registry.example.com/team
+      REGISTRY_USERNAME: registry-user
+      SSH_TARGET: runner@runner.example.com
     steps:
       - uses: actions/checkout@v5
         with:
@@ -255,16 +262,17 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          secrets_dir="$HOME/secrets-actions/$APP_NAME"
           dagger -W github.com/ninesl/daggerer@master api call release \
             --source=. \
             --registry="$REGISTRY_URL" \
             --app-name="$APP_NAME" \
             --tag="$GITHUB_SHA" \
             --registry-username="$REGISTRY_USERNAME" \
-            --registry-password=env://REGISTRY_PASSWORD \
+            --registry-password="file://$secrets_dir/registry_password" \
             --ssh-target="$SSH_TARGET" \
-            --ssh-key=env://SSH_KEY \
-            --known-hosts=env://KNOWN_HOSTS \
+            --ssh-key="file://$secrets_dir/staging_ssh_key" \
+            --known-hosts="file://$secrets_dir/staging_known_hosts" \
             --deploy-directory="apps/$APP_NAME/staging" \
             --deploy-container-runtime=podman
 ```
@@ -279,7 +287,7 @@ jobs:
 
 Production uses the same runner to build and publish, then connects with `ssh` to another server where Docker runs the application.
 
-The staging and production workflows use separate `ssh` target, key, and `known_hosts` repository secrets. They can share registry secrets because one `release` uses the same registry to publish and pull its image.
+The staging and production workflows use separate target, key, and `known_hosts` files on the example VPS. They share the registry files because one `release` uses the same registry to publish and pull its image.
 
 ```yaml
 name: Deploy production
@@ -296,12 +304,9 @@ jobs:
     runs-on: [self-hosted, linux, x64]
     env:
       APP_NAME: ${{ github.event.repository.name }}
-      REGISTRY_URL: ${{ secrets.REGISTRY_URL }}
-      REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}
-      REGISTRY_PASSWORD: ${{ secrets.REGISTRY_PASSWORD }}
-      SSH_TARGET: ${{ secrets.PRODUCTION_SSH_TARGET }}
-      SSH_KEY: ${{ secrets.PRODUCTION_SSH_KEY }}
-      KNOWN_HOSTS: ${{ secrets.PRODUCTION_KNOWN_HOSTS }}
+      REGISTRY_URL: registry.example.com/team
+      REGISTRY_USERNAME: registry-user
+      SSH_TARGET: deploy@prod.example.com
     steps:
       - uses: actions/checkout@v5
         with:
@@ -311,16 +316,17 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          secrets_dir="$HOME/secrets-actions/$APP_NAME"
           dagger -W github.com/ninesl/daggerer@master api call release \
             --source=. \
             --registry="$REGISTRY_URL" \
             --app-name="$APP_NAME" \
             --tag="$GITHUB_SHA" \
             --registry-username="$REGISTRY_USERNAME" \
-            --registry-password=env://REGISTRY_PASSWORD \
+            --registry-password="file://$secrets_dir/registry_password" \
             --ssh-target="$SSH_TARGET" \
-            --ssh-key=env://SSH_KEY \
-            --known-hosts=env://KNOWN_HOSTS \
+            --ssh-key="file://$secrets_dir/production_ssh_key" \
+            --known-hosts="file://$secrets_dir/production_known_hosts" \
             --deploy-directory="apps/$APP_NAME/production" \
             --deploy-container-runtime=docker
 ```
@@ -332,7 +338,7 @@ jobs:
 - `--deploy-directory` selects the production Compose project under the production `ssh` user's home.
 - `--deploy-container-runtime=docker` runs `docker login`, `docker pull`, and `docker compose` on production.
 
-GitHub exposes the repository secrets only to each workflow process. Dagger reads typed Secret inputs from that process with `env://`; it does not create credential files on the runner. The Compose projects, `runtime.env`, and application secrets still exist on their respective deployment hosts.
+The workflow reads deployment inputs from the example VPS filesystem. The Compose projects, `runtime.env`, and application runtime secrets exist on their respective deployment hosts.
 
 ## Build Inputs
 
@@ -386,15 +392,7 @@ COPY --from=builder /app/server /usr/local/bin/server
 ENTRYPOINT ["/usr/local/bin/server"]
 ```
 
-Create a [fine-grained GitHub PAT](https://github.com/settings/personal-access-tokens/new) with read access to the private dependency repository. Save it as the `GITHUB_PAT` repository secret and save the second value as `BAR`. Map both into the workflow's `env:` block:
-
-```yaml
-env:
-  GITHUB_PAT: ${{ secrets.GITHUB_PAT }}
-  BAR: ${{ secrets.BAR }}
-```
-
-Then add these arguments to either release call:
+Create a [fine-grained GitHub PAT](https://github.com/settings/personal-access-tokens/new) with read access to the private dependency repository. Store its raw value and the `BAR` value in separate runner-local files. Then add these arguments to either release call:
 
 ```bash
 go_version="$(awk '$1 == "go" { print $2 }' go.mod)"
@@ -407,11 +405,11 @@ dagger -W github.com/ninesl/daggerer@master api call release \
   --source=. \
   --build-env-file="$build_env_file" \
   --build-secret-ids=github_token,BAR \
-  --build-secrets=env://GITHUB_PAT,env://BAR \
+  --build-secrets=file://$HOME/secrets-actions/my-app/github_token,file://$HOME/secrets-actions/my-app/bar \
   <the registry and deployment arguments from the selected workflow>
 ```
 
-The two secret lists must have equal lengths. `github_token` maps to `GITHUB_PAT` and `BAR` maps to the `BAR` environment Secret. The IDs must match the Dockerfile's secret mounts. Add `.env` and `.git` to `.dockerignore` when applicable.
+The two secret lists must have equal lengths. `github_token` maps to the first file and `BAR` maps to the second. The IDs must match the Dockerfile's secret mounts. Add `.env`, `.git`, and any runner credential paths to `.dockerignore` when applicable.
 
 ### Private Dotenv Example
 
@@ -427,10 +425,8 @@ RUN --mount=type=secret,id=build_env,required=true \
 Pass it as a Secret:
 
 ```bash
---build-secret-env=env://BUILD_SECRET_ENV
+--build-secret-env=file://$HOME/secrets-actions/my-app/private.env
 ```
-
-Here `BUILD_SECRET_ENV` is mapped from a multiline GitHub Actions repository secret in the workflow's `env:` block.
 
 The mount exists only for the `RUN` instruction that requests it. It is not copied into the resulting image.
 
