@@ -34,7 +34,13 @@ Create a self-hosted runner for a repo:
 https://github.com/<user>/<myrepo>/settings/actions/runners/new
 ```
 
-Install Dagger `v1.0.0-beta.13` on your self-hosted runner.
+For the rest of this documentation, we use a VPS with the `linux` operating system and `x64` architecture, comparable to a basic [Amazon EC2 instance](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/EC2_GetStarted.html). The example workflows select it with the `[self-hosted, linux, x64]` runner labels.
+
+> **Before you begin:** Read through the entire documentation before following the guide. Your application's requirements will likely differ from these examples. Review the example projects using Daggerer below first so you understand the available options and can create the simplest pipeline for your needs.
+>
+> The examples favor [grug-brained simplicity](https://grugbrain.dev/) and [locality of behavior](https://htmx.org/essays/locality-of-behaviour/) so the resulting pipeline stays small, idiomatic in Dagger and Go, and feels good to maintain.
+
+Install Dagger `v1.0.0-beta.13` for the VPS user that owns the self-hosted runner so that user can utilize the Dagger Engine.
 
 - [Install the Dagger CLI](https://docs.dagger.io/getting-started/install)
 
@@ -46,7 +52,9 @@ sudo ./svc.sh start
 sudo ./svc.sh status
 ```
 
-Install an SSH server and either Docker with its Compose plugin or Podman with a compatible Compose provider on the deployment host. These are the two supported deployment runtimes. Compose runs on the deployment host. Provision the deployment directory and Compose file before deploying.
+Install an SSH server and either Docker with its Compose plugin or Podman with a compatible Compose provider on the deployment host. Daggerer supports only `docker` and `podman` as remote runtimes for `deploy` and for `release`, which depends on `deploy`. Compose runs on the deployment host. Provision the deployment directory and Compose file before deploying.
+
+`build-only` is deployment-runtime agnostic. It accepts an application source directory and builds any Dockerfile supported by [`Directory.DockerBuild`][dagger-build].
 
 ## Mental Model
 
