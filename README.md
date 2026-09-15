@@ -64,8 +64,8 @@ Our example environment looks like this:
 
 ```text
 /home/runner/
-├── actions/
-│   └── secrets/
+├── secrets-actions/
+│   └── my-app/
 │       ├── deploy_key
 │       ├── known_hosts
 │       └── registry_password
@@ -76,9 +76,9 @@ Our example environment looks like this:
     └── my-app/
         └── compose.yml
 ```
-- `$HOME/actions/secrets/deploy_key` is authorized for SSH; create it with [`ssh-keygen`](https://man.openbsd.org/ssh-keygen).
-- `$HOME/actions/secrets/known_hosts` contains the verified SSH host key for `runner.example.com`.
-- `$HOME/actions/secrets/registry_password` contains a registry token with push and pull access.
+- `$HOME/secrets-actions/my-app/deploy_key` is authorized for SSH; create it with [`ssh-keygen`](https://man.openbsd.org/ssh-keygen).
+- `$HOME/secrets-actions/my-app/known_hosts` contains the verified SSH host key for `runner.example.com`.
+- `$HOME/secrets-actions/my-app/registry_password` contains a registry token with push and pull access.
 
 Place this file at `/home/runner/apps/my-app/compose.yml`:
 
@@ -110,6 +110,8 @@ permissions:
 jobs:
   release:
     runs-on: [self-hosted, linux, x64]
+    env:
+      APP_NAME: ${{ github.event.repository.name }}
     steps:
       - uses: actions/checkout@v5
         with:
@@ -119,16 +121,17 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          secrets_dir="$HOME/secrets-actions/$APP_NAME"
           dagger -W github.com/ninesl/daggerer@master api call release \
             --source=. \
             --registry=registry.example.com/team \
-            --app-name="${GITHUB_REPOSITORY##*/}" \
+            --app-name="$APP_NAME" \
             --registry-username='${{ secrets.REGISTRY_USERNAME }}' \
-            --registry-password=file://$HOME/actions/secrets/registry_password \
+            --registry-password="file://$secrets_dir/registry_password" \
             --ssh-target='${{ secrets.SSH_TARGET }}' \
-            --ssh-key=file://$HOME/actions/secrets/deploy_key \
-            --known-hosts=file://$HOME/actions/secrets/known_hosts \
-            --deploy-directory="apps/${GITHUB_REPOSITORY##*/}" \
+            --ssh-key="file://$secrets_dir/deploy_key" \
+            --known-hosts="file://$secrets_dir/known_hosts" \
+            --deploy-directory="apps/$APP_NAME" \
             --deploy-container-runtime=docker
 ```
 
@@ -192,8 +195,8 @@ The runner VPS also hosts staging, so its filesystem contains the self-hosted ru
 
 ```text
 /home/runner/
-├── actions/
-│   └── secrets/
+├── secrets-actions/
+│   └── my-app/
 │       ├── staging_deploy_key
 │       ├── staging_known_hosts
 │       ├── production_deploy_key
@@ -243,6 +246,8 @@ permissions:
 jobs:
   release:
     runs-on: [self-hosted, linux, x64]
+    env:
+      APP_NAME: ${{ github.event.repository.name }}
     steps:
       - uses: actions/checkout@v5
         with:
@@ -252,17 +257,18 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          secrets_dir="$HOME/secrets-actions/$APP_NAME"
           dagger -W github.com/ninesl/daggerer@master api call release \
             --source=. \
             --registry=registry.example.com/team \
-            --app-name="${GITHUB_REPOSITORY##*/}" \
+            --app-name="$APP_NAME" \
             --tag="$GITHUB_SHA" \
             --registry-username='${{ secrets.REGISTRY_USERNAME }}' \
-            --registry-password=file://$HOME/actions/secrets/registry_password \
+            --registry-password="file://$secrets_dir/registry_password" \
             --ssh-target='${{ secrets.STAGING_SSH_TARGET }}' \
-            --ssh-key=file://$HOME/actions/secrets/staging_deploy_key \
-            --known-hosts=file://$HOME/actions/secrets/staging_known_hosts \
-            --deploy-directory="apps/${GITHUB_REPOSITORY##*/}/staging" \
+            --ssh-key="file://$secrets_dir/staging_deploy_key" \
+            --known-hosts="file://$secrets_dir/staging_known_hosts" \
+            --deploy-directory="apps/$APP_NAME/staging" \
             --deploy-container-runtime=podman
 ```
 
@@ -291,6 +297,8 @@ permissions:
 jobs:
   release:
     runs-on: [self-hosted, linux, x64]
+    env:
+      APP_NAME: ${{ github.event.repository.name }}
     steps:
       - uses: actions/checkout@v5
         with:
@@ -300,17 +308,18 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          secrets_dir="$HOME/secrets-actions/$APP_NAME"
           dagger -W github.com/ninesl/daggerer@master api call release \
             --source=. \
             --registry=registry.example.com/team \
-            --app-name="${GITHUB_REPOSITORY##*/}" \
+            --app-name="$APP_NAME" \
             --tag="$GITHUB_SHA" \
             --registry-username='${{ secrets.REGISTRY_USERNAME }}' \
-            --registry-password=file://$HOME/actions/secrets/registry_password \
+            --registry-password="file://$secrets_dir/registry_password" \
             --ssh-target='${{ secrets.PRODUCTION_SSH_TARGET }}' \
-            --ssh-key=file://$HOME/actions/secrets/production_deploy_key \
-            --known-hosts=file://$HOME/actions/secrets/production_known_hosts \
-            --deploy-directory="apps/${GITHUB_REPOSITORY##*/}/production" \
+            --ssh-key="file://$secrets_dir/production_deploy_key" \
+            --known-hosts="file://$secrets_dir/production_known_hosts" \
+            --deploy-directory="apps/$APP_NAME/production" \
             --deploy-container-runtime=docker
 ```
 
@@ -388,7 +397,7 @@ dagger -W github.com/ninesl/daggerer@master api call release \
   --source=. \
   --build-env-file="$build_env_file" \
   --build-secret-ids=github_token,BAR \
-  --build-secrets=file://$HOME/actions/secrets/github_token,file://$HOME/actions/secrets/bar \
+  --build-secrets=file://$HOME/secrets-actions/my-app/github_token,file://$HOME/secrets-actions/my-app/bar \
   <the registry and deployment arguments from the selected workflow>
 ```
 
@@ -408,7 +417,7 @@ RUN --mount=type=secret,id=build_env,required=true \
 Pass it as a Secret:
 
 ```bash
---build-secret-env=file://$HOME/actions/secrets/private.env
+--build-secret-env=file://$HOME/secrets-actions/my-app/private.env
 ```
 
 The mount exists only for the `RUN` instruction that requests it. It is not copied into the resulting image.
