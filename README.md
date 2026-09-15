@@ -28,23 +28,20 @@ Build, publish, and deploy an app from a self-hosted GitHub runner.
 
 ## Prerequisites
 
-Create a self-hosted runner for a repo:
-
-```text
-https://github.com/<user>/<myrepo>/settings/actions/runners/new
-```
-
-For the rest of this documentation, we use a VPS with the `linux` operating system and `x64` architecture, comparable to a basic [Amazon EC2 instance](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/EC2_GetStarted.html). The example workflows select it with the `[self-hosted, linux, x64]` runner labels.
-
-> **Before you begin:** Read through the entire documentation before following the guide. Your application's requirements will likely differ from these examples. Review the example projects using Daggerer below first so you understand the available options and can create the simplest pipeline for your needs.
+> Read through the entire documentation first. Your application's requirements will likely differ from these examples. Review the example Daggerer pipelines below first so you understand the available options and can create the simplest pipeline for your needs.
 >
-> The examples favor [grug-brained simplicity](https://grugbrain.dev/) and [locality of behavior](https://htmx.org/essays/locality-of-behaviour/) so the resulting pipeline stays small, idiomatic in Dagger and Go, and feels good to maintain.
+> The examples favor [grug-brained simplicity](https://grugbrain.dev/) and [locality of behavior](https://htmx.org/essays/locality-of-behaviour/) so the resulting pipeline stays small and idiomatic for Dagger and Go.
+Daggerer supports `docker` and `podman` for `deploy` and `release`. Install one of these combinations on each deployment host:
 
-Install Dagger `v1.0.0-beta.13` for the VPS user that owns the self-hosted runner so that user can utilize the Dagger Engine.
+- [Docker Engine](https://docs.docker.com/engine/install/) with the [Docker Compose plugin](https://docs.docker.com/compose/install/linux/)
+- [Podman](https://podman.io/docs/installation) with a provider supported by [`podman compose`](https://docs.podman.io/en/latest/markdown/podman-compose.1.html)
 
-- [Install the Dagger CLI](https://docs.dagger.io/getting-started/install)
+Compose runs on the deployment host. Provision the host filesystem with the SSH user's deployment directory, Compose file, runtime environment file, and application secrets. The [example workflows](#example-github-actions-workflows) show the complete runner and deployment-host layouts.
 
-Install and start the runner service from its directory, using the Linux user that has the Dagger CLI installed and can read the deployment credential files.
+Create a self-hosted runner for your repo: `https://github.com/<user>/<repo>/settings/actions/runners/new`
+
+For the rest of this documentation, we use a remote VPS with the `linux` operating system and `x64` architecture, comparable to a basic [Amazon EC2 instance](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/EC2_GetStarted.html). The example workflows select it with the `[self-hosted, linux, x64]` runner labels.
+Install and start the runner service from its directory.
 
 ```bash
 sudo ./svc.sh install "$USER"
@@ -52,7 +49,9 @@ sudo ./svc.sh start
 sudo ./svc.sh status
 ```
 
-Install an SSH server and either Docker with its Compose plugin or Podman with a compatible Compose provider on the deployment host. Daggerer supports only `docker` and `podman` as remote runtimes for `deploy` and for `release`, which depends on `deploy`. Compose runs on the deployment host. Provision the deployment directory and Compose file before deploying.
+[Install the Dagger CLI](https://docs.dagger.io/getting-started/install) for the Linux user that owns the self-hosted runner service. The workflow invokes the CLI as that user, and the CLI starts or connects to the Dagger Engine.
+
+Daggerer was built with Dagger `v1.0.0-beta.13`. Run `dagger version` as the runner service user to verify CLI and Engine access before running the GitHub Actions workflow.
 
 `build-only` is deployment-runtime agnostic. It accepts an application source directory and builds any Dockerfile supported by [`Directory.DockerBuild`][dagger-build].
 
@@ -297,7 +296,7 @@ Build inputs, app runtime configuration, and deployment credentials have separat
 | --- | --- | --- | --- |
 | Build values | `GO_VERSION`, `APP_PACKAGE`, `FOO` | `buildEnvFile` or `buildValues` | Dockerfile `ARG` instructions in Dagger |
 | Build secrets | Dependency PAT, `BAR`, private build `.env` | `buildSecrets` or `buildSecretEnv` | Dockerfile secret mounts in Dagger |
-| App runtime values | `APP_MODE`, service URLs | Compose `environment` or `env_file` | The running app on the deployment host |
+| App runtime values | `LOG_LEVEL`, service URLs | Compose `environment` or `env_file` | The running app on the deployment host |
 | App runtime secrets | App API token, database password | Compose `secrets` | The running app on the deployment host |
 | SSH authentication | Deployment private key and `known_hosts` | `sshKey` and `knownHosts` | Daggerer's SSH client |
 | Registry authentication | Registry username and token | `registryUsername` and `registryPassword` | Image publishing and remote login/pull |
