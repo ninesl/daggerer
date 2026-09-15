@@ -44,7 +44,7 @@ Daggerer needs a `Dockerfile` to build the application. `deploy` and `release` a
 
 `build-only` and `build` do not require `docker` or `podman`, they use the Dagger Engine directly.
 
-Create a self-hosted runner for the application repository at `https://github.com/<owner>/<repo>/settings/actions/runners/new`. Install and start it according to GitHub's instructions. Its location is your choice; Daggerer does not require a runner filesystem layout.
+Create a self-hosted runner for your application's repository at `https://github.com/<owner>/<repo>/settings/actions/runners/new`. Install and start it according to GitHub's instructions. This location is your choice; Daggerer does not require a runner filesystem layout.
 
 From the directory where you installed the runner, the GitHub setup instructions use:
 
