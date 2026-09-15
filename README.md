@@ -6,7 +6,7 @@ Daggerer exposes four API functions:
 
 - `build-only` builds an input `Dockerfile` with [`Directory.DockerBuild`][dagger-build] and returns a cached [`Container`][dagger-container].
 - `build` validates registry authentication, calls `build-only`, applies [`WithRegistryAuth`](https://docs.dagger.io/reference/api/container#withRegistryAuth), and [`Publish`](https://docs.dagger.io/reference/api/container#publish) publishes the image.
-- `deploy` connects to a target SSH server, pulls an existing image, and uses Compose to serve the image.
+- `deploy` connects to a target `ssh` server, pulls an existing image, and uses Compose to serve the image.
 - `release` calls `build` and then `deploy` with the same registry, application name, and tag simplifying the top level API.
 
 ```bash
@@ -64,11 +64,6 @@ For the Quick Start only, we use the following example filesystem. These paths a
 
 ```text
 /home/runner/
-├── secrets-actions/
-│   └── my-app/
-│       ├── deploy_key
-│       ├── known_hosts
-│       └── registry_password
 ├── actions-runner/
 │   └── my-app/              # GitHub Actions self-hosted runner for my-app
 │       ├── run.sh
@@ -77,9 +72,6 @@ For the Quick Start only, we use the following example filesystem. These paths a
     └── my-app/
         └── compose.yml
 ```
-- `$HOME/secrets-actions/my-app/deploy_key` is authorized for SSH; create it with [`ssh-keygen`](https://man.openbsd.org/ssh-keygen).
-- `$HOME/secrets-actions/my-app/known_hosts` contains the verified SSH host key for `runner.example.com`.
-- `$HOME/secrets-actions/my-app/registry_password` contains a registry token with push and pull access.
 
 Place this file at `/home/runner/apps/my-app/compose.yml`:
 
@@ -96,7 +88,7 @@ The application must listen on port `5000` inside its container. The service is 
 
 > In production I use [`caddy`](https://caddyserver.com/docs/quick-starts/reverse-proxy) (simplified replacement for [`nginx`](https://docs.nginx.com/nginx/admin-guide/web-server/reverse-proxy/)) as a reverse proxy.
 
-Add `REGISTRY_USERNAME` and `SSH_TARGET` as GitHub Actions secrets. GitHub injects their values into the workflow, which passes them directly to Daggerer's string arguments. Passwords, private keys, and `known_hosts` stay in runner-local files because Daggerer accepts those arguments as typed Dagger Secrets through `file://`.
+Create GitHub Actions repository secrets for the registry and `ssh` inputs. The workflow maps them into its environment. String API arguments read those environment values normally; typed Dagger `Secret` arguments use Dagger's [`env://` secret provider](https://docs.dagger.io/adopting/secrets), so they are not written to runner files.
 
 ```yaml
 name: Release
@@ -113,6 +105,12 @@ jobs:
     runs-on: [self-hosted, linux, x64]
     env:
       APP_NAME: ${{ github.event.repository.name }}
+      REGISTRY_URL: ${{ secrets.REGISTRY_URL }}
+      REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}
+      REGISTRY_PASSWORD: ${{ secrets.REGISTRY_PASSWORD }}
+      SSH_TARGET: ${{ secrets.SSH_TARGET }}
+      SSH_KEY: ${{ secrets.SSH_KEY }}
+      KNOWN_HOSTS: ${{ secrets.KNOWN_HOSTS }}
     steps:
       - uses: actions/checkout@v5
         with:
@@ -122,16 +120,15 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          secrets_dir="$HOME/secrets-actions/$APP_NAME"
           dagger -W github.com/ninesl/daggerer@master api call release \
             --source=. \
-            --registry=registry.example.com/team \
+            --registry="$REGISTRY_URL" \
             --app-name="$APP_NAME" \
-            --registry-username='${{ secrets.REGISTRY_USERNAME }}' \
-            --registry-password="file://$secrets_dir/registry_password" \
-            --ssh-target='${{ secrets.SSH_TARGET }}' \
-            --ssh-key="file://$secrets_dir/deploy_key" \
-            --known-hosts="file://$secrets_dir/known_hosts" \
+            --registry-username="$REGISTRY_USERNAME" \
+            --registry-password=env://REGISTRY_PASSWORD \
+            --ssh-target="$SSH_TARGET" \
+            --ssh-key=env://SSH_KEY \
+            --known-hosts=env://KNOWN_HOSTS \
             --deploy-directory="apps/$APP_NAME" \
             --deploy-container-runtime=docker
 ```
@@ -141,15 +138,15 @@ Each argument has one job:
 | Argument | Quick Start value |
 | --- | --- |
 | `--source` | The checked-out application and Docker build context |
-| `--registry` | Registry host and namespace used in the image reference |
-| `--app-name` | The GitHub repository name, producing `registry.example.com/team/my-app:latest` |
+| `--registry` | Registry host and namespace from `REGISTRY_URL` |
+| `--app-name` | The GitHub repository name, producing `<REGISTRY_URL>/my-app:latest` |
 | `--registry-username` / `--registry-password` | Credentials used to verify access, publish, and log in on the deployment host |
-| `--ssh-target` | The SSH user and host where Compose runs |
-| `--ssh-key` / `--known-hosts` | SSH authentication and verified server identity read from the runner |
-| `--deploy-directory` | `apps/my-app` under the SSH user's home |
+| `--ssh-target` | The `ssh` user and host where Compose runs |
+| `--ssh-key` / `--known-hosts` | `ssh` authentication and verified server identity read from the runner |
+| `--deploy-directory` | `apps/my-app` under the `ssh` user's home |
 | `--deploy-container-runtime` | Selects `docker` for remote login, pull, and Compose |
 
-`release` defaults to `--tag=latest`, `--dockerfile=Dockerfile`, and `--compose-file=compose.yml`. It publishes `registry.example.com/team/my-app:latest`, pulls that exact image on the VPS, sets `APP_IMAGE` for Compose, and runs:
+`release` passes the same `--registry`, `--app-name`, and tag to both `build` and `deploy`. It defaults to `--tag=latest`, `--dockerfile=Dockerfile`, and `--compose-file=compose.yml`. With `REGISTRY_URL=registry.example.com/team`, it publishes and pulls `registry.example.com/team/my-app:latest`, sets `APP_IMAGE` for Compose, and runs:
 
 ```bash
 cd "$HOME/apps/my-app" && \
@@ -157,7 +154,7 @@ cd "$HOME/apps/my-app" && \
   docker compose -f compose.yml up -d --force-recreate --remove-orphans
 ```
 
-Any failed registry, build, publish, SSH, pull, or Compose step stops the release.
+Any failed registry, build, publish, `ssh`, pull, or Compose step stops the release.
 
 ## Staging And Production
 
@@ -166,7 +163,7 @@ The following pair is a practical extension of Quick Start:
 | | Staging | Production |
 | --- | --- | --- |
 | Trigger | Branches other than `master`/`main` | `master` and `main` |
-| Deployment host | The local runner VPS | An external SSH server |
+| Deployment host | The local runner VPS | An external `ssh` server |
 | Runtime | Podman | Docker |
 | Tag | Commit SHA | Commit SHA |
 | Directory | `$HOME/apps/my-app/staging` | `$HOME/apps/my-app/production` |
@@ -196,13 +193,6 @@ In this example, the runner VPS also hosts staging. We chose the following files
 
 ```text
 /home/runner/
-├── secrets-actions/
-│   └── my-app/
-│       ├── staging_deploy_key
-│       ├── staging_known_hosts
-│       ├── production_deploy_key
-│       ├── production_known_hosts
-│       └── registry_password
 ├── actions-runner/
 │   └── my-app/              # GitHub Actions self-hosted runner for my-app
 │       ├── run.sh
@@ -233,7 +223,7 @@ The staging public key is authorized for the runner user on the runner VPS. The 
 
 ### Staging: Local Runner VPS With Podman
 
-The staging workflow executes on the runner VPS and SSHes back to that VPS. The SSH hop is intentional: `deploy` follows the same path for local staging and remote production.
+The staging workflow executes on the runner VPS and connects back to that VPS with `ssh`. The `ssh` hop is intentional: `deploy` follows the same path for local staging and remote production.
 
 ```yaml
 name: Deploy staging
@@ -262,7 +252,7 @@ jobs:
           secrets_dir="$HOME/secrets-actions/$APP_NAME"
           dagger -W github.com/ninesl/daggerer@master api call release \
             --source=. \
-            --registry=registry.example.com/team \
+            --registry='${{ secrets.REGISTRY_URL }}' \
             --app-name="$APP_NAME" \
             --tag="$GITHUB_SHA" \
             --registry-username='${{ secrets.REGISTRY_USERNAME }}' \
@@ -280,11 +270,11 @@ jobs:
 - `--deploy-directory` selects the staging Compose project under the runner user's home.
 - `--deploy-container-runtime=podman` runs `podman login`, `podman pull`, and `podman compose` on staging.
 
-### Production: External SSH Server With Docker
+### Production: External `ssh` Server With Docker
 
-Production uses the same runner to build and publish, then SSHes to another server where Docker runs the application.
+Production uses the same runner to build and publish, then connects with `ssh` to another server where Docker runs the application.
 
-Add `PRODUCTION_SSH_TARGET` as a GitHub Actions secret containing the production SSH destination, such as `deploy@prod.example.com`.
+The staging and production workflows use separate `ssh` target, key, and `known_hosts` repository secrets. They can share registry secrets because one `release` uses the same registry to publish and pull its image.
 
 ```yaml
 name: Deploy production
@@ -313,7 +303,7 @@ jobs:
           secrets_dir="$HOME/secrets-actions/$APP_NAME"
           dagger -W github.com/ninesl/daggerer@master api call release \
             --source=. \
-            --registry=registry.example.com/team \
+            --registry='${{ secrets.REGISTRY_URL }}' \
             --app-name="$APP_NAME" \
             --tag="$GITHUB_SHA" \
             --registry-username='${{ secrets.REGISTRY_USERNAME }}' \
@@ -329,7 +319,7 @@ jobs:
 - `--ssh-target` names the external production user and server.
 - `--ssh-key` is a production-only private key whose public key is authorized on that server.
 - `--known-hosts` verifies the external server instead of the local runner VPS.
-- `--deploy-directory` selects the production Compose project under the production SSH user's home.
+- `--deploy-directory` selects the production Compose project under the production `ssh` user's home.
 - `--deploy-container-runtime=docker` runs `docker login`, `docker pull`, and `docker compose` on production.
 
 The `file://` paths in both workflows refer to files on the runner. The Compose projects, `runtime.env`, and application secrets exist on their respective deployment hosts.
@@ -426,7 +416,7 @@ The mount exists only for the `RUN` instruction that requests it. It is not copi
 
 ## How Deployment Works
 
-`deploy` creates a temporary Alpine SSH client inside Dagger and mounts the SSH key, `known_hosts`, and registry password as Dagger [`Secret`][dagger-secret] values. It then runs four remote steps:
+`deploy` creates a temporary Alpine `ssh` client inside Dagger and mounts the `ssh` key, `known_hosts`, and registry password as Dagger [`Secret`][dagger-secret] values. It then runs four remote steps:
 
 ```text
 1. Verify <deploy-directory>/<compose-file> exists.
@@ -440,14 +430,14 @@ The resulting path is:
 ```text
 self-hosted runner
     -> Dagger Engine
-        -> temporary SSH client container
-            -> SSH deployment host
+        -> temporary `ssh` client container
+            -> `ssh` deployment host
                 -> Docker or Podman Compose
 ```
 
-`--deploy-directory` is relative to the SSH user's home. `--compose-file` defaults to `compose.yml`. Daggerer passes `APP_IMAGE=<registry>/<app-name>:<tag>` to Compose; the examples consume it with `image: ${APP_IMAGE:?APP_IMAGE is required}`.
+`--deploy-directory` is relative to the `ssh` user's home. `--compose-file` defaults to `compose.yml`. Daggerer passes `APP_IMAGE=<registry>/<app-name>:<tag>` to Compose; the examples consume it with `image: ${APP_IMAGE:?APP_IMAGE is required}`.
 
-Strict SSH host-key checking uses the supplied `--known-hosts` Secret. The SSH target must be reachable from Dagger's container network even when it is the runner VPS itself.
+Strict `ssh` host-key checking uses the supplied `--known-hosts` Secret. The `ssh` target must be reachable from Dagger's container network even when it is the runner VPS itself.
 
 ## Caching
 
@@ -456,7 +446,7 @@ Strict SSH host-key checking uses the supplied `--known-hosts` Secret. The SSH t
 | `build-only` / [`DockerBuild`][dagger-build] | Reuses eligible cached work for unchanged inputs |
 | Registry authentication | Runs on every build or release |
 | [`Publish`][dagger-publish] | Publishes on every build or release; existing blobs may be reused |
-| SSH checks, login, pull, and Compose | Run on every deploy or release |
+| `ssh` checks, login, pull, and Compose | Run on every deploy or release |
 
 This keeps expensive image builds cacheable while ensuring registry and deployment side effects happen for every requested release.
 
