@@ -1,0 +1,13 @@
+[modules.go]
+source = "github.com/dagger/go-sdk@v1.0.1"
+
+[sdks.go]
+module = "go"
+
+[sdks.go.scopes.daggerer]
+is-module = true
+name = "daggerer"
+
+[modules.daggerer]
+entrypoint = true
+source = "daggerer"
