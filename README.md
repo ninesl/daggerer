@@ -44,9 +44,9 @@ Daggerer needs a `Dockerfile` to build the application. `deploy` and `release` a
 
 `build-only` and `build` do not require `docker` or `podman`, they use the Dagger Engine directly.
 
-Create a self-hosted runner for the application repository at `https://github.com/<owner>/<repo>/settings/actions/runners/new`. The examples use a Linux x64 VPS selected by `[self-hosted, linux, x64]`, comparable to a basic [Amazon EC2 instance](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/EC2_GetStarted.html).
+Create a self-hosted runner for the application repository at `https://github.com/<owner>/<repo>/settings/actions/runners/new`. Install and start it according to GitHub's instructions. Its location is your choice; Daggerer does not require a runner filesystem layout.
 
-Install and start the runner service from the directory the runner is in:
+From the directory where you installed the runner, the GitHub setup instructions use:
 
 ```bash
 sudo ./svc.sh install "$USER"
@@ -60,7 +60,7 @@ sudo ./svc.sh status
 
 This example builds and publishes the checked-out application, then deploys it back to the same VPS that runs the GitHub runner. It uses `docker`, the default `Dockerfile`, the default `compose.yml`, and the default `latest` tag.
 
-Our example environment looks like this:
+For the Quick Start only, we use the following example filesystem. These paths are ordinary API inputs, not a layout required by Daggerer:
 
 ```text
 /home/runner/
@@ -69,9 +69,10 @@ Our example environment looks like this:
 │       ├── deploy_key
 │       ├── known_hosts
 │       └── registry_password
-├── actions-runner/          # GitHub Actions self-hosted runner
-│   ├── run.sh
-│   └── svc.sh
+├── actions-runner/
+│   └── my-app/              # GitHub Actions self-hosted runner for my-app
+│       ├── run.sh
+│       └── svc.sh
 └── apps/
     └── my-app/
         └── compose.yml
@@ -191,7 +192,7 @@ secrets:
 
 Provision `runtime.env` and `secrets/app_token` independently on each host. They configure the running application and never enter the Dagger build. See Compose documentation for [`env_file`](https://docs.docker.com/reference/compose-file/services/#env_file) and [`secrets`](https://docs.docker.com/reference/compose-file/secrets/).
 
-The runner VPS also hosts staging, so its filesystem contains the self-hosted runner, credentials for both targets, and the staging Compose project:
+In this example, the runner VPS also hosts staging. We chose the following filesystem to keep each application's runner, credentials, and Compose project together. Daggerer does not require these directory names:
 
 ```text
 /home/runner/
@@ -202,9 +203,10 @@ The runner VPS also hosts staging, so its filesystem contains the self-hosted ru
 │       ├── production_deploy_key
 │       ├── production_known_hosts
 │       └── registry_password
-├── actions-runner/          # GitHub Actions self-hosted runner
-│   ├── run.sh
-│   └── svc.sh
+├── actions-runner/
+│   └── my-app/              # GitHub Actions self-hosted runner for my-app
+│       ├── run.sh
+│       └── svc.sh
 └── apps/
     └── my-app/
         └── staging/
