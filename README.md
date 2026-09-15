@@ -4,13 +4,49 @@ Build, publish, and deploy an app from a self-hosted GitHub runner.
 
 ## Guide
 
-- [Mental model](#mental-model)
-- [Caching: build reuse and live deployment](#caching-build-reuse-and-live-deployment)
 - [Prerequisites](#prerequisites)
-- [Quick start](#quick-start)
-- [Shared Dockerfile and build inputs](#shared-dockerfile-and-build-inputs)
-- [Example workflows](#example-workflows)
-- [Workspace usage](#workspace-usage)
+- [Mental Model](#mental-model)
+  - [Release Sequence And Deployment Targets](#release-sequence-and-deployment-targets)
+  - [Daggerer Inputs And Caller Choices](#daggerer-inputs-and-caller-choices)
+- [Quick Start](#quick-start)
+  - [Action](#action)
+  - [How Compose Selects The App Image](#how-compose-selects-the-app-image)
+  - [Application Runtime Values And Secrets](#application-runtime-values-and-secrets)
+  - [Supported Deployment Tools](#supported-deployment-tools)
+  - [How Deploy Works](#how-deploy-works)
+- [Caching: Build Reuse And Live Deployment](#caching-build-reuse-and-live-deployment)
+- [Shared Dockerfile And Build Inputs](#shared-dockerfile-and-build-inputs)
+  - [Private Dependency And PAT Requirements](#private-dependency-and-pat-requirements)
+  - [Public Values: Native EnvFile Or File Input](#public-values-native-envfile-or-file-input)
+  - [Passing A Public `.env` From The CLI](#passing-a-public-env-from-the-cli)
+  - [Private Values: Named Secrets](#private-values-named-secrets)
+  - [Private Values: A Secret `.env` File](#private-values-a-secret-env-file)
+- [Example GitHub Actions Workflows](#example-github-actions-workflows)
+  - [`staging.yml`](#stagingyml)
+  - [`prod.yml`](#prodyml)
+- [Workspace Usage](#workspace-usage)
+
+## Prerequisites
+
+Create a self-hosted runner for a repo:
+
+```text
+https://github.com/<user>/<myrepo>/settings/actions/runners/new
+```
+
+Install Dagger `v1.0.0-beta.13` on your self-hosted runner.
+
+- [Install the Dagger CLI](https://docs.dagger.io/getting-started/install)
+
+Install and start the runner service from its directory, using the Linux user that has the Dagger CLI installed and can read the deployment credential files.
+
+```bash
+sudo ./svc.sh install "$USER"
+sudo ./svc.sh start
+sudo ./svc.sh status
+```
+
+Install an SSH server and either Docker with its Compose plugin or Podman with a compatible Compose provider on the deployment host. These are the two supported deployment runtimes. Compose runs on the deployment host. Provision the deployment directory and Compose file before deploying.
 
 ## Mental Model
 
@@ -39,27 +75,6 @@ The command shape is always:
 dagger -W github.com/ninesl/daggerer@master api call <operation> <arguments>
 ```
 
-### Daggerer Inputs And Caller Choices
-
-Names beginning with `--` are Daggerer API arguments. Names in uppercase are shell variables chosen by these example workflows. GitHub Actions secret names, filesystem paths, SSH users and hosts, image tags, Compose filenames, and BuildKit secret IDs are also caller choices.
-
-| Daggerer argument | What the caller supplies |
-| --- | --- |
-| `--source` | Application checkout used as the Dockerfile build context |
-| `--build-env-file` | Public Dockerfile build values in dotenv format |
-| `--build-values` | Public build values constructed as a Dagger `EnvFile` by an API client |
-| `--build-secret-ids` / `--build-secrets` | Dockerfile secret mount IDs and matching Dagger Secrets |
-| `--build-secret-env` | Private dotenv file mounted under the fixed Dockerfile secret ID `build_env` |
-| `--registry`, `--app-name`, `--tag` | Published and deployed image reference |
-| `--registry-username`, `--registry-password` | Registry authentication |
-| `--ssh-target`, `--ssh-key`, `--known-hosts` | Deployment host and SSH authentication |
-| `--deploy-directory`, `--compose-file` | Existing Compose project under the SSH user's home |
-| `--deploy-container-runtime` | `docker` or `podman` command installed on the deployment host |
-
-For example, `REGISTRY_URL` is a workflow variable whose value is passed to Daggerer's `--registry` argument. `RUNNERVPS_DAGGERER_REGISTRY_AUTH_SECRET` is an example GitHub Actions secret name whose value is a runner-local filename; that file is passed to `--registry-password` through `file://`. Rename either workflow setting to fit your repository while keeping the Daggerer argument name.
-
-The Compose variable `APP_IMAGE` is Daggerer's deployment contract: Daggerer sets it to the selected image reference and the app service reads it in `image: ${APP_IMAGE:?APP_IMAGE is required}`. Named build secret IDs such as `github_token` and `BAR` are chosen by the caller and must match the Dockerfile mount IDs. `build_env` is the fixed mount ID used by `--build-secret-env`.
-
 ### Release Sequence And Deployment Targets
 
 The workflow and `release` execute in this order:
@@ -87,41 +102,27 @@ The hosts and users may be the same. The names are descriptive placeholders rath
 
 Quick Start demonstrates one possible setup: one VPS, Docker, the default `Dockerfile`, `compose.yml`, and `latest` settings.
 
-## Caching: Build Reuse And Live Deployment
+### Daggerer Inputs And Caller Choices
 
-| Work | Cache behavior |
+Names beginning with `--` are Daggerer API arguments. Names in uppercase are shell variables chosen by these example workflows. GitHub Actions secret names, filesystem paths, SSH users and hosts, image tags, Compose filenames, and BuildKit secret IDs are also caller choices.
+
+| Daggerer argument | What the caller supplies |
 | --- | --- |
-| `build-only` / [`DockerBuild`][dagger-build] | Reuses eligible cached build work for unchanged inputs. |
-| Build-time registry authentication | Runs each invocation to check current authentication. |
-| [`Publish`][dagger-publish] | Performs the registry publication; existing image blobs can be reused. |
-| Deployment SSH commands | Execute afresh, including server verification and client authentication. |
-| Remote image pull | Contacts the registry for the requested tag; existing local image layers can be reused. |
+| `--source` | Application checkout used as the Dockerfile build context |
+| `--build-env-file` | Public Dockerfile build values in dotenv format |
+| `--build-values` | Public build values constructed as a Dagger `EnvFile` by an API client |
+| `--build-secret-ids` / `--build-secrets` | Dockerfile secret mount IDs and matching Dagger Secrets |
+| `--build-secret-env` | Private dotenv file mounted under the fixed Dockerfile secret ID `build_env` |
+| `--registry`, `--app-name`, `--tag` | Published and deployed image reference |
+| `--registry-username`, `--registry-password` | Registry authentication |
+| `--ssh-target`, `--ssh-key`, `--known-hosts` | Deployment host and SSH authentication |
+| `--deploy-directory`, `--compose-file` | Existing Compose project under the SSH user's home |
+| `--deploy-container-runtime` | `docker` or `podman` command installed on the deployment host |
 
-Image builds reuse Dagger's cache. Registry authentication, publishing, and SSH deployment still run for each release, so an unchanged application can be deployed again without rebuilding it.
+For example, `REGISTRY_URL` is a workflow variable whose value is passed to Daggerer's `--registry` argument. `RUNNERVPS_DAGGERER_REGISTRY_AUTH_SECRET` is an example GitHub Actions secret name whose value is a runner-local filename; that file is passed to `--registry-password` through `file://`. Rename either workflow setting to fit your repository while keeping the Daggerer argument name.
 
-Every deployment therefore connects to the explicitly selected `--ssh-target`, authenticates, pulls `registry/app-name:tag`, and runs Compose there. With `latest`, it pulls the image currently assigned to that tag in the registry. Changing the deployment host does not require rebuilding the application.
+The Compose variable `APP_IMAGE` is Daggerer's deployment contract: Daggerer sets it to the selected image reference and the app service reads it in `image: ${APP_IMAGE:?APP_IMAGE is required}`. Named build secret IDs such as `github_token` and `BAR` are chosen by the caller and must match the Dockerfile mount IDs. `build_env` is the fixed mount ID used by `--build-secret-env`.
 
-## Prerequisites
-
-Create a self-hosted runner for a repo:
-
-```text
-https://github.com/<user>/<myrepo>/settings/actions/runners/new
-```
-
-Install Dagger `v1.0.0-beta.13` on your self-hosted runner.
-
-- [Install the Dagger CLI](https://docs.dagger.io/getting-started/install)
-
-Install and start the runner service from its directory, using the Linux user that has the Dagger CLI installed and can read the deployment credential files.
-
-```bash
-sudo ./svc.sh install "$USER"
-sudo ./svc.sh start
-sudo ./svc.sh status
-```
-
-Install an SSH server and either Docker with its Compose plugin or Podman with a compatible Compose provider on the deployment host. These are the two supported deployment runtimes. Compose runs on the deployment host. Provision the deployment directory and Compose file before deploying.
 
 ## Quick Start
 
@@ -382,6 +383,20 @@ For `deploy` and `release`, supply `--ssh-key`, `--known-hosts`, and `--registry
 
 `--deploy-directory` is relative to the SSH user's `$HOME`. Provision the selected Compose file there before deploying.
 
+## Caching: Build Reuse And Live Deployment
+
+| Work | Cache behavior |
+| --- | --- |
+| `build-only` / [`DockerBuild`][dagger-build] | Reuses eligible cached build work for unchanged inputs. |
+| Build-time registry authentication | Runs each invocation to check current authentication. |
+| [`Publish`][dagger-publish] | Performs the registry publication; existing image blobs can be reused. |
+| Deployment SSH commands | Execute afresh, including server verification and client authentication. |
+| Remote image pull | Contacts the registry for the requested tag; existing local image layers can be reused. |
+
+Image builds reuse Dagger's cache. Registry authentication, publishing, and SSH deployment still run for each release, so an unchanged application can be deployed again without rebuilding it.
+
+Every deployment therefore connects to the explicitly selected `--ssh-target`, authenticates, pulls `registry/app-name:tag`, and runs Compose there. With `latest`, it pulls the image currently assigned to that tag in the registry. Changing the deployment host does not require rebuilding the application.
+
 ## Shared Dockerfile And Build Inputs
 
 Keep one `Dockerfile` in the application repository. Every example call builds that file. Daggerer is language-independent; this small Go app has a main package at the repository root, committed `go.mod` and `go.sum` files, and a private GitHub module listed in `go.mod` (for example, `github.com/your-org/private-lib`). Your GitHub account must have read access to that dependency repository.
@@ -539,7 +554,7 @@ To use this file in place of the individual BAR mount in our Go Dockerfile, repl
 
 The private file can coexist with other named secrets. When `--build-secret-env` is supplied, `build_env` is reserved for that file. In a Go pipeline, set `BuildSecretEnv: privateEnv` in the options above, where `privateEnv` is a `*dagger.Secret`.
 
-## Example Workflows
+## Example GitHub Actions Workflows
 
 These are application-specific GitHub Actions workflows. Their branch filters choose which direct `release` call runs:
 
