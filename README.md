@@ -147,8 +147,7 @@ jobs:
           # Daggerer forwards these public values to --compose-file on --ssh-target.
           DEPLOY_VALUES: |
             APP_IMAGE=registry.example.com/team/${{ env.APPLICATION_NAME }}:latest
-        run: |
-          dagger -W github.com/ninesl/daggerer@master api call release 
+        run: dagger -W github.com/ninesl/daggerer@master api call release 
             # Supply the step's current directory as the --source build context.
             # . contains the repository files placed by actions/checkout
             --source=.
@@ -286,8 +285,7 @@ jobs:
           persist-credentials: false
 
       - name: Build, publish, and deploy staging
-        run: |
-          dagger -W github.com/ninesl/daggerer@master api call \
+        run: dagger -W github.com/ninesl/daggerer@master api call \
             with-build-secret \
             --id=github_pat \
             --secret="file://$HOME/secrets/$APP_NAME/github_pat" \
@@ -334,8 +332,7 @@ jobs:
           persist-credentials: false
 
       - name: Build, publish, and deploy production
-        run: |
-          dagger -W github.com/ninesl/daggerer@master api call \
+        run: dagger -W github.com/ninesl/daggerer@master api call \
             with-build-secret \
             --id=github_pat \
             --secret="file://$HOME/secrets/$APP_NAME/github_pat" \
