@@ -206,12 +206,17 @@ Any failed registry, build, publish, `ssh`, pull, or `docker compose -f compose.
 
 ## Staging And Production
 
-This example builds on the self-hosted runner, deploys staging back to that VPS with Podman, and deploys production to a separate VPS with Docker.
+This example calls the same Daggerer `release` function from two workflows:
+
+- Staging builds on the self-hosted runner and deploys back to that VPS with Podman.
+- Production builds on the same runner and deploys to a separate VPS with Docker.
+
+Unlike Quick Start, neither target uses the default `compose.yml`. Our application exposes a different host port in each environment and may apply different resource limits, so each workflow explicitly selects its target's file with `--compose-file`.
 
 ### Filesystem
 
 ```text
-# Self-hosted runner and staging target
+# Self-hosted runner and staging --ssh-target
 /home/runner/
 ├── secrets/my-app/
 │   ├── registry_password
@@ -224,12 +229,12 @@ This example builds on the self-hosted runner, deploys staging back to that VPS 
 │   └── production_known_hosts
 ├── actions-runner/my-app/
 └── staging/my-app/
-    └── compose.yml
+    └── staging.compose.yml
 
-# Production target
+# Production --ssh-target
 /home/deploy/
 └── apps/my-app/
-    └── compose.yml
+    └── production.compose.yml
 
 # Application repository checked out by GitHub Actions
 my-repo/
@@ -240,27 +245,36 @@ my-repo/
 └── .dockerignore
 ```
 
-The runner-local files under `secrets/my-app` are described in [SECRETS.md](SECRETS.md). They are inputs, not files in the application checkout.
-
-Use this `compose.yml` on both targets:
-
-```yaml
-services:
-  app:
-    image: ${APP_IMAGE:?APP_IMAGE is required}
-    restart: unless-stopped
-    ports:
-      - "5000:5000"
-    environment:
-      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
-      APP_SECRET: ${APP_SECRET:?APP_SECRET is required}
-```
-
-The Dockerfile's private dependency mount and the `with-build-secret` workaround are documented under [Dockerfile Build Secrets](SECRETS.md#dockerfile-build-secrets).
+The files under `/home/runner/secrets/my-app` are caller-local inputs, not files in the application checkout. [Secrets](SECRETS.md) explains what each file contains and how Daggerer handles it.
 
 ### Staging
 
-Branches other than `main` and `master` publish an immutable commit tag and deploy it to staging:
+Branches other than `main` and `master` publish an immutable commit tag and deploy it to the staging `--ssh-target`.
+
+```yaml
+# /home/runner/staging/my-app/staging.compose.yml on the staging --ssh-target.
+services:
+  app:
+    # --deploy-values supplies the exact commit image published by this workflow.
+    image: ${APP_IMAGE:?APP_IMAGE is required}
+    restart: unless-stopped
+    ports:
+      # Keep staging available on a separate host port from our production convention.
+      - "5001:5000"
+    environment:
+      # --deploy-secret-env-file supplies these values only to the Compose process.
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
+      APP_SECRET: ${APP_SECRET:?APP_SECRET is required}
+    # Optional staging limits; enable these only when the target's Compose implementation
+    # supports and enforces deploy resources.
+    # deploy:
+    #   resources:
+    #     limits:
+    #       cpus: "0.50"
+    #       memory: 256M
+```
+
+The workflow sets `--compose-file=staging.compose.yml` because Daggerer otherwise looks for the default `compose.yml` inside `--deploy-directory`.
 
 ```yaml
 # .github/workflows/staging.yml
@@ -277,37 +291,67 @@ jobs:
   release:
     runs-on: [self-hosted, linux, x64]
     env:
-      APP_NAME: my-app
-      IMAGE: registry.example.com/team/my-app:${{ github.sha }}
+      APPLICATION_NAME: my-app
+      DEPLOY_IMAGE: registry.example.com/team/my-app:${{ github.sha }}
     steps:
       - uses: actions/checkout@v5
         with:
           persist-credentials: false
 
       - name: Build, publish, and deploy staging
-        run: dagger -W github.com/ninesl/daggerer@master api call \
+        run: |
+          # with-build-secret maps our runner-local PAT to the Dockerfile's github_pat ID.
+          # release builds this checkout, publishes the commit tag, and deploys it with
+          # the target-side staging.compose.yml selected by --compose-file.
+          dagger -W github.com/ninesl/daggerer@master api call \
             with-build-secret \
             --id=github_pat \
-            --secret="file://$HOME/secrets/$APP_NAME/github_pat" \
+            --secret="file://$HOME/secrets/$APPLICATION_NAME/github_pat" \
             release \
             --source=. \
             --registry=registry.example.com/team \
-            --app-name="$APP_NAME" \
+            --app-name="$APPLICATION_NAME" \
             --tag=${{ github.sha }} \
             --registry-username=registry-user \
-            --registry-password="file://$HOME/secrets/$APP_NAME/registry_password" \
+            --registry-password="file://$HOME/secrets/$APPLICATION_NAME/registry_password" \
             --ssh-target=runner@runner.example.com \
-            --ssh-key="file://$HOME/secrets/$APP_NAME/staging_ssh_key" \
-            --known-hosts="file://$HOME/secrets/$APP_NAME/staging_known_hosts" \
+            --ssh-key="file://$HOME/secrets/$APPLICATION_NAME/staging_ssh_key" \
+            --known-hosts="file://$HOME/secrets/$APPLICATION_NAME/staging_known_hosts" \
             --deploy-container-runtime=podman \
-            --deploy-directory="staging/$APP_NAME" \
-            --deploy-values="APP_IMAGE=$IMAGE" \
-            --deploy-secret-env-file="file://$HOME/secrets/$APP_NAME/staging.env"
+            --deploy-directory="staging/$APPLICATION_NAME" \
+            --compose-file=staging.compose.yml \
+            --deploy-values="APP_IMAGE=$DEPLOY_IMAGE" \
+            --deploy-secret-env-file="file://$HOME/secrets/$APPLICATION_NAME/staging.env"
 ```
 
 ### Production
 
-Pushes to `main` or `master` publish `latest` and deploy it to the production VPS:
+Pushes to `main` or `master` publish `latest` and deploy it to the production `--ssh-target`.
+
+```yaml
+# /home/deploy/apps/my-app/production.compose.yml on the production --ssh-target.
+services:
+  app:
+    # --deploy-values supplies the latest image published by this workflow.
+    image: ${APP_IMAGE:?APP_IMAGE is required}
+    restart: unless-stopped
+    ports:
+      # Production keeps the public host port used by our application.
+      - "5000:5000"
+    environment:
+      # --deploy-secret-env-file supplies these values only to the Compose process.
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
+      APP_SECRET: ${APP_SECRET:?APP_SECRET is required}
+    # Optional production limits can be larger than staging. Enable these only when
+    # the target's Compose implementation supports and enforces deploy resources.
+    # deploy:
+    #   resources:
+    #     limits:
+    #       cpus: "1.0"
+    #       memory: 512M
+```
+
+The workflow sets `--compose-file=production.compose.yml`; this file is independent of `staging.compose.yml` and the default `compose.yml`.
 
 ```yaml
 # .github/workflows/production.yml
@@ -324,35 +368,39 @@ jobs:
   release:
     runs-on: [self-hosted, linux, x64]
     env:
-      APP_NAME: my-app
-      IMAGE: registry.example.com/team/my-app:latest
+      APPLICATION_NAME: my-app
+      DEPLOY_IMAGE: registry.example.com/team/my-app:latest
     steps:
       - uses: actions/checkout@v5
         with:
           persist-credentials: false
 
       - name: Build, publish, and deploy production
-        run: dagger -W github.com/ninesl/daggerer@master api call \
+        run: |
+          # Build on the runner, then use the production SSH credentials and target-side
+          # production.compose.yml for the deployment.
+          dagger -W github.com/ninesl/daggerer@master api call \
             with-build-secret \
             --id=github_pat \
-            --secret="file://$HOME/secrets/$APP_NAME/github_pat" \
+            --secret="file://$HOME/secrets/$APPLICATION_NAME/github_pat" \
             release \
             --source=. \
             --registry=registry.example.com/team \
-            --app-name="$APP_NAME" \
+            --app-name="$APPLICATION_NAME" \
             --tag=latest \
             --registry-username=registry-user \
-            --registry-password="file://$HOME/secrets/$APP_NAME/registry_password" \
+            --registry-password="file://$HOME/secrets/$APPLICATION_NAME/registry_password" \
             --ssh-target=deploy@prod.example.com \
-            --ssh-key="file://$HOME/secrets/$APP_NAME/production_ssh_key" \
-            --known-hosts="file://$HOME/secrets/$APP_NAME/production_known_hosts" \
+            --ssh-key="file://$HOME/secrets/$APPLICATION_NAME/production_ssh_key" \
+            --known-hosts="file://$HOME/secrets/$APPLICATION_NAME/production_known_hosts" \
             --deploy-container-runtime=docker \
-            --deploy-directory="apps/$APP_NAME" \
-            --deploy-values="APP_IMAGE=$IMAGE" \
-            --deploy-secret-env-file="file://$HOME/secrets/$APP_NAME/production.env"
+            --deploy-directory="apps/$APPLICATION_NAME" \
+            --compose-file=production.compose.yml \
+            --deploy-values="APP_IMAGE=$DEPLOY_IMAGE" \
+            --deploy-secret-env-file="file://$HOME/secrets/$APPLICATION_NAME/production.env"
 ```
 
-Both releases fail on registry, build, publish, SSH, pull, or Compose errors. Daggerer does not discover files or environment variables implicitly; every path and value above is an explicit API input.
+Both releases stop on registry, build, publish, SSH, pull, or Compose errors. Daggerer does not discover these files or environment variables: every path and value is an explicit workflow input.
 
 [dagger-build]: https://docs.dagger.io/reference/api/directory#dockerBuild
 [dagger-container]: https://docs.dagger.io/reference/api/container
