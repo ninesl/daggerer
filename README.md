@@ -4,8 +4,8 @@
 
 Daggerer exposes four API functions:
 
-- `build-only` builds the file selected by `--dockerfile` (`Dockerfile` by default) with [`Directory.DockerBuild`][dagger-build] and returns a cached [`Container`][dagger-container].
-- `build` validates registry authentication, calls `build-only`, applies [`WithRegistryAuth`](https://docs.dagger.io/reference/api/container#withRegistryAuth), and [`Publish`](https://docs.dagger.io/reference/api/container#publish) publishes the image.
+- `build-dockerfile` builds the file selected by `--dockerfile` (`Dockerfile` by default) with [`Directory.DockerBuild`][dagger-build] and returns a cached [`Container`][dagger-container].
+- `build` validates registry authentication, calls `build-dockerfile`, applies [`WithRegistryAuth`](https://docs.dagger.io/reference/api/container#withRegistryAuth), and [`Publish`](https://docs.dagger.io/reference/api/container#publish) publishes the image.
 - `deploy` connects to `--ssh-target`, pulls an existing image, and uses the runtime selected by `--deploy-container-runtime` to run `--compose-file` (`compose.yml` by default).
 - `release` calls `build` and then `deploy` with the same `--registry`, `--app-name`, and `--tag`, simplifying the top-level API.
 
@@ -13,7 +13,7 @@ Daggerer exposes four API functions:
 # List the available Daggerer functions.
 dagger -W github.com/ninesl/daggerer@master api functions
 # Inspect each function's parameters and defaults.
-dagger -W github.com/ninesl/daggerer@master api call build-only --help
+dagger -W github.com/ninesl/daggerer@master api call build-dockerfile --help
 dagger -W github.com/ninesl/daggerer@master api call build --help
 dagger -W github.com/ninesl/daggerer@master api call deploy --help
 dagger -W github.com/ninesl/daggerer@master api call release --help
@@ -48,7 +48,7 @@ installed on `--ssh-target`. This does NOT need to match Dagger's runtime; Dagge
 
 Daggerer needs the file selected by `--dockerfile` (`Dockerfile` by default) to build the image.
 
-`build-only` and `build` **DO NOT** require `docker` or `podman`, they use the self-hosted runner's Dagger Engine directly.
+`build-dockerfile` and `build` **DO NOT** require `docker` or `podman`, they use the self-hosted runner's Dagger Engine directly.
 
 > [TODO: An external Dagger Engine target API is planned](link to dagger.io docs on how a dagger cli can connect to an external (like remote) dagger engine)
 
@@ -216,7 +216,7 @@ Our application uses a different host port, `DATABASE_URL`, and secret in each e
 ### Filesystem
 
 ```text
-# Self-hosted runner and staging --ssh-target
+# Self-hosted runner
 /home/runner/
 ├── secrets/my-app/
 │   ├── registry_password
@@ -227,12 +227,15 @@ Our application uses a different host port, `DATABASE_URL`, and secret in each e
 │   ├── staging_known_hosts
 │   ├── production_ssh_key
 │   └── production_known_hosts
-├── actions-runner/my-app/
+└── actions-runner/my-app/
+
+# Staging --ssh-target on the runner VPS
+/home/stageuser/
 └── staging/my-app/
     └── staging.compose.yml
 
 # Production --ssh-target
-/home/deploy/
+/home/deployuser/
 └── apps/my-app/
     └── production.compose.yml
 
@@ -254,7 +257,7 @@ Branches other than `main` and `master` pass the exact `${{ github.sha }}` to `-
 #### Staging Target YAML
 
 ```yaml
-# /home/runner/staging/my-app/staging.compose.yml on the staging --ssh-target.
+# /home/stageuser/staging/my-app/staging.compose.yml on the staging --ssh-target.
 services:
   app:
     # --deploy-values supplies the commit image published by this workflow.
@@ -320,14 +323,14 @@ jobs:
             --registry-password="file://$HOME/secrets/$APPLICATION_NAME/registry_password" \
 
             # Connect back to the runner VPS with staging credentials.
-            --ssh-target=runner@runner.example.com \
+            --ssh-target=stageuser@runner.example.com \
             --ssh-key="file://$HOME/secrets/$APPLICATION_NAME/staging_ssh_key" \
             --known-hosts="file://$HOME/secrets/$APPLICATION_NAME/staging_known_hosts" \
 
             # Run podman compose on the staging --ssh-target.
             --deploy-container-runtime=podman \
 
-            # Select /home/runner/staging/my-app on the staging --ssh-target.
+            # Select /home/stageuser/staging/my-app on the staging --ssh-target.
             --deploy-directory="staging/$APPLICATION_NAME" \
 
             # Run staging.compose.yml from --deploy-directory.
@@ -342,12 +345,12 @@ jobs:
 
 ### Production
 
-Pushes to `main` or `master` pass `latest` to `--tag`, then deploy that image to production with `docker compose`.
+Pushes to `main` or `master` omit `--tag`, so Daggerer publishes and deploys the default `latest` image with `docker compose`.
 
 #### Production Target YAML
 
 ```yaml
-# /home/deploy/apps/my-app/production.compose.yml on the production --ssh-target.
+# /home/deployuser/apps/my-app/production.compose.yml on the production --ssh-target.
 services:
   app:
     # --deploy-values supplies the latest image published by this workflow.
@@ -385,7 +388,7 @@ jobs:
     env:
       # Used by --app-name and our runner-local file paths.
       APPLICATION_NAME: my-app
-      # The same image selected by --tag below.
+      # Match the default latest tag used when --tag is omitted.
       DEPLOY_IMAGE: registry.example.com/team/my-app:latest
     steps:
       - uses: actions/checkout@v5
@@ -405,28 +408,25 @@ jobs:
             --registry=registry.example.com/team \
             --app-name="$APPLICATION_NAME" \
 
-            # Use latest as the production image tag.
-            --tag=latest \
-
             # Authenticate the publish and production pull.
             --registry-username=registry-user \
             --registry-password="file://$HOME/secrets/$APPLICATION_NAME/registry_password" \
 
             # Connect to the production VPS with production credentials.
-            --ssh-target=deploy@prod.example.com \
+            --ssh-target=deployuser@prod.example.com \
             --ssh-key="file://$HOME/secrets/$APPLICATION_NAME/production_ssh_key" \
             --known-hosts="file://$HOME/secrets/$APPLICATION_NAME/production_known_hosts" \
 
             # Run docker compose on the production --ssh-target.
             --deploy-container-runtime=docker \
 
-            # Select /home/deploy/apps/my-app on the production --ssh-target.
+            # Select /home/deployuser/apps/my-app on the production --ssh-target.
             --deploy-directory="apps/$APPLICATION_NAME" \
 
             # Run production.compose.yml from --deploy-directory.
             --compose-file=production.compose.yml \
 
-            # Pass the same latest image selected by --tag.
+            # Pass the same default latest image to production.compose.yml.
             --deploy-values="APP_IMAGE=$DEPLOY_IMAGE" \
 
             # Pass our production DATABASE_URL and PROD_SECRET_TOKEN over ssh stdin.

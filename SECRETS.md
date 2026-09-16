@@ -17,28 +17,25 @@ $HOME/secrets/my-app/
 └── production_known_hosts   # production --known-hosts
 ```
 
-These paths are our chosen layout, not names Daggerer discovers automatically. Keep the files outside the application checkout and restrict them to the runner service user:
+These paths are our chosen layout, Daggerer does not know these paths automatically.
 
-```bash
-chmod 700 "$HOME/secrets" "$HOME/secrets/my-app"
-chmod 600 "$HOME/secrets/my-app"/*
-```
+Keep the files outside the application checkout and restrict them to the runner service user with `chmod`, etc.
 
 ## Deployment Credentials
 
 The release workflows use three Dagger Secret inputs for infrastructure access:
 
-- `--registry-password` authenticates both the image publish and registry login on `--ssh-target`.
-- `--ssh-key` authenticates the `ssh` user selected by `--ssh-target`.
-- `--known-hosts` supplies the verified host key used for strict `ssh` host checking.
+- `--registry-password` authenticates both the image publish and registry login on `--ssh-target`
+- `--ssh-key` authenticates the `ssh` user selected by `--ssh-target`
+- `--known-hosts` supplies the verified host key used for strict `ssh` host checking
 
-These inputs accept either `file://` or `env://`. The README uses runner-local `file://` paths so the source of each credential is visible beside the API call.
+These inputs accept either `file://` or `env://`. [README.md](README.md) uses runner-local `file://` paths so the source of each credential is visible beside the API call.
 
 The build and deployment files below intentionally require `file://`; do not pass their values through public command arguments.
 
 ## Dockerfile Build Secrets
 
-`with-build-secret` maps one runner-local file to one Dockerfile secret mount. `--id` names the mount and `--secret` selects the file:
+`with-build-secret` maps one runner-local file to a BuildKit secret ID. `--id` chooses that ID and `--secret` selects the file:
 
 ```dockerfile
 # The workflow uses with-build-secret --id=github_pat before build or release.
@@ -49,8 +46,8 @@ RUN --mount=type=secret,id=github_pat,required=true \
 
 Chain `with-build-secret` once for every secret ID required by the file selected by `--dockerfile`:
 
-```text
-dagger -W github.com/ninesl/daggerer@master api call \
+```yaml
+run: dagger -W github.com/ninesl/daggerer@master api call \
   with-build-secret \
   --id=github_pat \
   --secret=file://$HOME/secrets/my-app/github_pat \
@@ -60,17 +57,19 @@ dagger -W github.com/ninesl/daggerer@master api call \
   release ...
 ```
 
-Each `--id` must be unique in the chain and must exactly match a Dockerfile `RUN --mount=type=secret,id=...` ID.
+Each `--id` must be unique in the chain. It does not need to match the source filename or the `github_pat` name in this example.
 
-### Dagger Beta Workaround
+When the Dockerfile consumes that secret, DockerBuild uses the ID to pair it with the `RUN --mount=type=secret,id=...` that requests it.
 
-Dagger `v1.0.0-beta.13` does not let `Directory.DockerBuild` directly pair an arbitrary ID with a `Secret`. Daggerer therefore uses Dagger's documented [`Plaintext()` then `SetSecret()` workaround](https://docs.dagger.io/0.21/cookbook/#use-secret-in-dockerfile-build) while assigning the requested BuildKit ID.
+### Dagger Build Secret Workaround
 
-The secret briefly exists in module memory during that assignment. Daggerer does not log, parse, write, or include it in errors. Restrict who can modify or invoke this module because code running inside the module shares that trust boundary.
+Dagger `v1.0.0-beta.13` does not let `Directory.DockerBuild` directly pair an arbitrary ID with a `Secret`.
 
-Native `{id, secret}` DockerBuild support is discussed in [dagger/dagger#7358](https://github.com/dagger/dagger/issues/7358), [dagger/dagger#9437](https://github.com/dagger/dagger/issues/9437), and [dagger/dagger#8058](https://github.com/dagger/dagger/pull/8058).
+Daggerer creates the build secret mapping with Dagger's [`Plaintext()` then `SetSecret()` workaround](https://docs.dagger.io/0.21/cookbook/#use-secret-in-dockerfile-build). Native `{id, secret}` support for `DockerBuild` is discussed in [dagger/dagger#7358](https://github.com/dagger/dagger/issues/7358), [dagger/dagger#9437](https://github.com/dagger/dagger/issues/9437), and [dagger/dagger#8058](https://github.com/dagger/dagger/pull/8058). Native support would let Daggerer remove the workaround and its `Plaintext()` call.
 
-Keeping the build in a Dockerfile gives up some native Dagger programmability, composition, and direct `WithMountedSecret` handling. Daggerer accepts that tradeoff so an existing Dockerfile can still use Dagger's portable execution, graph caching, observability, publishing, and release orchestration.
+`Plaintext()` returns the secret value to the Daggerer module process so it can register a new Secret under the requested BuildKit ID. Daggerer does not log, parse, write, or include that value in errors, but all code running in the module process shares access to its memory; only use module revisions you trust.
+
+Dockerfile build steps remain inside BuildKit instead of becoming individually programmable Dagger API operations, so those steps cannot directly use features such as `Container.WithMountedSecret`. The surrounding build and release workflow still uses the rest of the Dagger Engine.
 
 ## Deployment Environment Secrets
 
@@ -94,14 +93,21 @@ These names come from our application, not Daggerer. [`staging.compose.yml`](REA
 
 Users with sufficient `podman` or `docker` access can inspect a container's runtime environment. Daggerer also cannot prevent application, Dockerfile, `podman compose`, or `docker compose` logic from disclosing a value it receives.
 
-## Public Values
+## Public Application Values
 
 `--build-env-file`, `--build-values`, `--deploy-env-file`, and `--deploy-values` are public inputs. Never put credentials in them.
 
-Daggerer merges each public pair in this order:
+Daggerer applies the same low-to-high precedence model to build and deployment values:
 
-1. Load `--build-env-file` or `--deploy-env-file`, when supplied.
-2. Apply `--build-values` or `--deploy-values` over matching names.
-3. Keep values that exist only in the file or only in the explicit input.
+1. Load the caller-mounted `.env` supplied by `--build-env-file` or `--deploy-env-file`, when present.
+2. Load the literal dotenv text supplied by `--build-values` or `--deploy-values` into an in-memory file. These values take precedence and overwrite matching names from the mounted `.env`.
+3. Keep names that occur in only one source.
 
-Before deployment, Daggerer rejects any public deployment name also present in `--deploy-secret-env-file`. The collision error includes the variable name, never its value.
+The in-memory inputs are useful for public values defined directly in `workflow.yml`; their higher precedence lets a workflow override a checked-out or pre-mounted `.env` without changing that file.
+
+This overwrite model applies only between public inputs. Public and private inputs never overwrite one another:
+
+- A build variable name that exactly matches a chained `with-build-secret --id` is rejected before DockerBuild starts.
+- A deployment variable name that exactly matches a key in `--deploy-secret-env-file` is rejected before deployment starts.
+
+Both collision errors identify the conflicting name without including either value.

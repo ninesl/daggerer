@@ -17,7 +17,7 @@ const (
 var shellVariableName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 var buildSecretID = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]*$`)
 
-// WithBuildSecret adds a named BuildKit secret to the next chained build, build-only, or release call.
+// WithBuildSecret adds a named BuildKit secret to the next chained build, build-dockerfile, or release call.
 func (m *Daggerer) WithBuildSecret(
 	ctx context.Context,
 	// Dockerfile secret ID used by RUN --mount=type=secret,id=<id>.
@@ -49,9 +49,18 @@ func (m *Daggerer) WithBuildSecret(
 	return next, nil
 }
 
-func (m *Daggerer) dockerBuildSecrets(ctx context.Context) ([]*dagger.Secret, error) {
+func (m *Daggerer) dockerBuildSecrets(ctx context.Context, public []dagger.BuildArg) ([]*dagger.Secret, error) {
 	if len(m.BuildSecretIDs) != len(m.BuildSecretValues) {
 		return nil, fmt.Errorf("invalid build secret configuration")
+	}
+	publicNames := make(map[string]struct{}, len(public))
+	for _, variable := range public {
+		publicNames[variable.Name] = struct{}{}
+	}
+	for _, id := range m.BuildSecretIDs {
+		if _, exists := publicNames[id]; exists {
+			return nil, fmt.Errorf("build secret collision for %q: a variable cannot exist in both public and private inputs", id)
+		}
 	}
 	secrets := make([]*dagger.Secret, len(m.BuildSecretIDs))
 	for i, id := range m.BuildSecretIDs {

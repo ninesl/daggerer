@@ -22,8 +22,8 @@ const (
 	registryPasswordMountPath = "/run/secrets/registry_password"
 )
 
-// Build a container without publishing it.
-func (m *Daggerer) BuildOnly(
+// Build a container image from a Dockerfile without publishing it.
+func (m *Daggerer) BuildDockerfile(
 	ctx context.Context,
 	// Application checkout to use as the build context.
 	source *dagger.Directory,
@@ -45,7 +45,7 @@ func (m *Daggerer) BuildOnly(
 		return nil, err
 	}
 	opts.BuildArgs = args
-	secrets, err := m.dockerBuildSecrets(ctx)
+	secrets, err := m.dockerBuildSecrets(ctx, args)
 	if err != nil {
 		return nil, err
 	}
@@ -77,7 +77,7 @@ func (m *Daggerer) Build(
 	// +optional
 	buildValues string,
 ) (string, error) {
-	container, err := m.BuildOnly(ctx, source, buildEnvFile, buildValues, dockerfile)
+	container, err := m.BuildDockerfile(ctx, source, buildEnvFile, buildValues, dockerfile)
 	if err != nil {
 		return "", err
 	}

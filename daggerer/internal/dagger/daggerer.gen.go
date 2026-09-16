@@ -85,8 +85,8 @@ func (r *Daggerer) Build(ctx context.Context, source *Directory, registry string
 	return response, q.Execute(ctx)
 }
 
-// DaggererBuildOnlyOpts contains options for Daggerer.BuildOnly
-type DaggererBuildOnlyOpts struct {
+// DaggererBuildDockerfileOpts contains options for Daggerer.BuildDockerfile
+type DaggererBuildDockerfileOpts struct {
 	// Public .env file, parsed by Dagger. Never supply credentials here.
 	BuildEnvFile *File
 	// Public dotenv text, parsed by Dagger; overrides buildEnvFile values. Never supply credentials here.
@@ -97,10 +97,10 @@ type DaggererBuildOnlyOpts struct {
 	Dockerfile string
 }
 
-// Build a container without publishing it.
-func (r *Daggerer) BuildOnly(source *Directory, opts ...DaggererBuildOnlyOpts) *Container {
+// Build a container image from a Dockerfile without publishing it.
+func (r *Daggerer) BuildDockerfile(source *Directory, opts ...DaggererBuildDockerfileOpts) *Container {
 	assertNotNil("source", source)
-	q := r.query.Select("buildOnly")
+	q := r.query.Select("buildDockerfile")
 	for i := len(opts) - 1; i >= 0; i-- {
 		// `buildEnvFile` optional argument
 		if !querybuilder.IsZeroValue(opts[i].BuildEnvFile) {
@@ -314,7 +314,7 @@ func (r *Daggerer) Release(ctx context.Context, source *Directory, registry stri
 	return q.Execute(ctx)
 }
 
-// WithBuildSecret adds a named BuildKit secret to the next chained build, build-only, or release call.
+// WithBuildSecret adds a named BuildKit secret to the next chained build, build-dockerfile, or release call.
 func (r *Daggerer) WithBuildSecret(id string, secret *Secret) *Daggerer {
 	assertNotNil("secret", secret)
 	q := r.query.Select("withBuildSecret")

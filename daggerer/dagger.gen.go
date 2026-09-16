@@ -272,7 +272,7 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				}
 			}
 			return (*Daggerer).Build(&parent, ctx, source, registry, appName, tag, registryUsername, registryPassword, dockerfile, buildEnvFile, buildValues)
-		case "BuildOnly":
+		case "BuildDockerfile":
 			var parent Daggerer
 			err = json.Unmarshal(parentJSON, &parent)
 			if err != nil {
@@ -306,7 +306,7 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg dockerfile", err))
 				}
 			}
-			return (*Daggerer).BuildOnly(&parent, ctx, source, buildEnvFile, buildValues, dockerfile)
+			return (*Daggerer).BuildDockerfile(&parent, ctx, source, buildEnvFile, buildValues, dockerfile)
 		case "Deploy":
 			var parent Daggerer
 			err = json.Unmarshal(parentJSON, &parent)
@@ -589,9 +589,9 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 							WithArg("buildEnvFile", dag.TypeDef().WithObject("File").WithOptional(true), dagger.FunctionWithArgOpts{Description: "Public .env file, parsed by Dagger. Never supply credentials here.", SourceMap: dag.SourceMap("main.go", 75, 2)}).
 							WithArg("buildValues", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind).WithOptional(true), dagger.FunctionWithArgOpts{Description: "Public dotenv text, parsed by Dagger; overrides buildEnvFile values. Never supply credentials here.", SourceMap: dag.SourceMap("main.go", 78, 2)})).
 					WithFunction(
-						dag.Function("BuildOnly",
+						dag.Function("BuildDockerfile",
 							dag.TypeDef().WithObject("Container")).
-							WithDescription("Build a container without publishing it.").
+							WithDescription("Build a container image from a Dockerfile without publishing it.").
 							WithSourceMap(dag.SourceMap("main.go", 26, 1)).
 							WithArg("source", dag.TypeDef().WithObject("Directory"), dagger.FunctionWithArgOpts{Description: "Application checkout to use as the build context.", SourceMap: dag.SourceMap("main.go", 29, 2)}).
 							WithArg("buildEnvFile", dag.TypeDef().WithObject("File").WithOptional(true), dagger.FunctionWithArgOpts{Description: "Public .env file, parsed by Dagger. Never supply credentials here.", SourceMap: dag.SourceMap("main.go", 32, 2)}).
@@ -644,7 +644,7 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 					WithFunction(
 						dag.Function("WithBuildSecret",
 							dag.TypeDef().WithObject("Daggerer")).
-							WithDescription("WithBuildSecret adds a named BuildKit secret to the next chained build, build-only, or release call.").
+							WithDescription("WithBuildSecret adds a named BuildKit secret to the next chained build, build-dockerfile, or release call.").
 							WithSourceMap(dag.SourceMap("secrets.go", 21, 1)).
 							WithArg("id", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "Dockerfile secret ID used by RUN --mount=type=secret,id=<id>.", SourceMap: dag.SourceMap("secrets.go", 24, 2)}).
 							WithArg("secret", dag.TypeDef().WithObject("Secret"), dagger.FunctionWithArgOpts{Description: "Caller-local secret file. Must use file://.", SourceMap: dag.SourceMap("secrets.go", 26, 2)}))), nil
