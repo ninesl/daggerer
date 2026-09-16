@@ -79,18 +79,18 @@ Keeping the build in a Dockerfile gives up some native Dagger programmability, c
 ```dotenv
 # $HOME/secrets/my-app/staging.env
 DATABASE_URL=postgres://app:staging-password@staging-db.internal:5432/my_app
-APP_SECRET=replace-with-staging-secret
+STAGING_SECRET_KEY=replace-with-staging-secret
 ```
 
 ```dotenv
 # $HOME/secrets/my-app/production.env
 DATABASE_URL=postgres://app:production-password@prod-db.internal:5432/my_app
-APP_SECRET=replace-with-production-secret
+PROD_SECRET_TOKEN=replace-with-production-secret
 ```
 
-Daggerer validates the original Secret, then streams its values over `ssh` stdin. Staging supplies `staging.env` to `podman compose`; production supplies `production.env` to `docker compose`. The values do not return through the Dagger API, become command-line arguments, or get written to the checkout or `--ssh-target`.
+Daggerer validates the Secret, then streams it over `ssh` stdin. Staging passes `staging.env` to `podman compose`; production passes `production.env` to `docker compose`. The values do not return through the Dagger API or get written to either target.
 
-The [`staging.compose.yml` example](README.md#staging-target-yaml) and [`production.compose.yml` example](README.md#production-target-yaml) each choose which forwarded values enter their running container. Both explicitly require `DATABASE_URL` and `APP_SECRET`.
+These names come from our application, not Daggerer. [`staging.compose.yml`](README.md#staging-target-yaml) requires the staging `DATABASE_URL` and `STAGING_SECRET_KEY`. [`production.compose.yml`](README.md#production-target-yaml) requires the production `DATABASE_URL` and `PROD_SECRET_TOKEN`.
 
 Users with sufficient `podman` or `docker` access can inspect a container's runtime environment. Daggerer also cannot prevent application, Dockerfile, `podman compose`, or `docker compose` logic from disclosing a value it receives.
 
