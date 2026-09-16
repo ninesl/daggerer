@@ -112,7 +112,7 @@ func (m *Daggerer) Release(
 	knownHosts *dagger.Secret,
 	// Remote directory relative to the SSH user's home
 	deployDirectory string,
-	// Public dotenv file on the caller, forwarded to the remote Compose process. Never supply credentials here.
+	// Public dotenv file on the caller, forwarded to the remote `compose` process. Never supply credentials here.
 	// +optional
 	deployEnvFile *dagger.File,
 	// Public dotenv text; overrides deployEnvFile values. No application variable names are implied.
@@ -121,7 +121,7 @@ func (m *Daggerer) Release(
 	// Private NAME=literal-value dotenv base file Secret; must use file://.
 	// +optional
 	deploySecretEnvFile *dagger.Secret,
-	// Compose file name that is in the deploy directory.
+	// `compose` file name that is in the deploy directory.
 	// +default="compose.yml"
 	composeFile string,
 	// Required deployment CLI: docker or podman.
@@ -157,7 +157,7 @@ func (m *Daggerer) Release(
 	})
 }
 
-// Deploy an existing image with Compose.
+// Deploy an existing image with `compose`.
 // +cache="never"
 func (m *Daggerer) Deploy(
 	ctx context.Context,
@@ -173,7 +173,7 @@ func (m *Daggerer) Deploy(
 	knownHosts *dagger.Secret,
 	// Remote directory relative to the SSH user's home.
 	deployDirectory string,
-	// Public dotenv file on the caller, forwarded to the remote Compose process. Never supply credentials here.
+	// Public dotenv file on the caller, forwarded to the remote `compose` process. Never supply credentials here.
 	// +optional
 	deployEnvFile *dagger.File,
 	// Public dotenv text; overrides deployEnvFile values. No application variable names are implied.
@@ -304,7 +304,7 @@ type deployComposeParams struct {
 
 func (m *Daggerer) deployComposeImage(p deployComposeParams) error {
 	remoteDirectory := `"$HOME"/` + shellQuote(p.deployDirectory)
-	// Forward only caller-supplied values; the application's Compose file defines their meaning.
+	// Forward only caller-supplied values; the application's `compose` file defines their meaning.
 	publicEnv := []string{"env", "--"}
 	for _, variable := range p.deployEnv {
 		publicEnv = append(publicEnv, variable.Name+"="+variable.Value)

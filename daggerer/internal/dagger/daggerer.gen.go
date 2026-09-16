@@ -127,7 +127,7 @@ type DaggererDeployOpts struct {
 
 	// Default: "latest"
 	Tag string
-	// Public dotenv file on the caller, forwarded to the remote Compose process. Never supply credentials here.
+	// Public dotenv file on the caller, forwarded to the remote `compose` process. Never supply credentials here.
 	DeployEnvFile *File
 	// Public dotenv text; overrides deployEnvFile values. No application variable names are implied.
 	DeployValues string
@@ -138,7 +138,7 @@ type DaggererDeployOpts struct {
 	ComposeFile string
 }
 
-// Deploy an existing image with Compose.
+// Deploy an existing image with `compose`.
 func (r *Daggerer) Deploy(ctx context.Context, registry string, appName string, sshTarget string, sshKey *Secret, knownHosts *Secret, deployDirectory string, deployContainerRuntime string, registryUsername string, registryPassword *Secret, opts ...DaggererDeployOpts) error {
 	assertNotNil("sshKey", sshKey)
 	assertNotNil("knownHosts", knownHosts)
@@ -237,13 +237,13 @@ type DaggererReleaseOpts struct {
 	//
 	// Default: "latest"
 	Tag string
-	// Public dotenv file on the caller, forwarded to the remote Compose process. Never supply credentials here.
+	// Public dotenv file on the caller, forwarded to the remote `compose` process. Never supply credentials here.
 	DeployEnvFile *File
 	// Public dotenv text; overrides deployEnvFile values. No application variable names are implied.
 	DeployValues string
 	// Private NAME=literal-value dotenv base file Secret; must use file://.
 	DeploySecretEnvFile *Secret
-	// Compose file name that is in the deploy directory.
+	// `compose` file name that is in the deploy directory.
 	//
 	// Default: "compose.yml"
 	ComposeFile string

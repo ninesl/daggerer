@@ -93,19 +93,28 @@ These names come from our application, not Daggerer. [`staging.compose.yml`](REA
 
 Users with sufficient `podman` or `docker` access can inspect a container's runtime environment. Daggerer also cannot prevent application, Dockerfile, `podman compose`, or `docker compose` logic from disclosing a value it receives.
 
-## Public Application Values
+## Public Values
 
 `--build-env-file`, `--build-values`, `--deploy-env-file`, and `--deploy-values` are public inputs. Never put credentials in them.
 
-Daggerer applies the same low-to-high precedence model to build and deployment values:
+Daggerer does not define the names or meanings of these values. The build pair becomes Docker build arguments, and the deployment pair becomes the `compose` runtime environment; Daggerer does not merge build values with deployment values.
+
+Within each pair, Daggerer merges in low-to-high precedence order:
 
 1. Load the caller-mounted `.env` supplied by `--build-env-file` or `--deploy-env-file`, when present.
 2. Load the literal dotenv text supplied by `--build-values` or `--deploy-values` into an in-memory file. These values take precedence and overwrite matching names from the mounted `.env`.
 3. Keep names that occur in only one source.
 
-The in-memory inputs are useful for public values defined directly in `workflow.yml`; their higher precedence lets a workflow override a checked-out or pre-mounted `.env` without changing that file.
+Our [staging workflow](README.md#staging-workflow) and [production workflow](README.md#production-workflow) take advantage of this behavior. These are application choices in our example, not Daggerer defaults:
 
-This overwrite model applies only between public inputs. Public and private inputs never overwrite one another:
+| Workflow | Checked-out `.env` | In-memory `--deploy-values` | Final public value |
+| --- | --- | --- | --- |
+| Staging | `APP_ENV=DEV` | `APP_ENV=STAGING` | `APP_ENV=STAGING` |
+| Production | `APP_ENV=DEV` | `APP_ENV=PRODUCTION` | `APP_ENV=PRODUCTION` |
+
+Each workflow also adds its public `APP_IMAGE` through `--deploy-values`.
+
+Only public inputs participate in this overwrite model. Secrets never overwrite public values, and public values never overwrite secrets. Daggerer rejects name collisions instead:
 
 - A build variable name that exactly matches a chained `with-build-secret --id` is rejected before DockerBuild starts.
 - A deployment variable name that exactly matches a key in `--deploy-secret-env-file` is rejected before deployment starts.

@@ -211,7 +211,7 @@ This example calls the same Daggerer `release` function from two workflows:
 - Staging builds on the self-hosted runner and runs `podman compose` on that VPS.
 - Production builds on the same runner and runs `docker compose` on a separate VPS.
 
-Our application uses a different host port, `DATABASE_URL`, and secret in each environment. Those requirements belong to our application, not Daggerer. Each workflow uses `--compose-file` and `--deploy-secret-env-file` to pass our choices to `podman compose` or `docker compose`.
+Our application uses a different host port, public `APP_ENV`, private `DATABASE_URL`, and application secret in each environment. Those requirements belong to our application, not Daggerer. Each workflow uses Daggerer's public-value precedence to replace the checkout's `APP_ENV=DEV`, while `--deploy-secret-env-file` separately supplies private values.
 
 ### Filesystem
 
@@ -244,11 +244,19 @@ my-repo/
 ├── .github/workflows/
 │   ├── staging.yml
 │   └── production.yml
+├── .env                    # shared public runtime defaults
 ├── Dockerfile
 └── .dockerignore
 ```
 
 The files under `/home/runner/secrets/my-app` are in the self-hosted runner. [Secrets](SECRETS.md) explains what each file contains and how Daggerer handles it in the example.
+
+The checked-out `.env` contains a public development default shared by both workflows:
+
+```dotenv
+# my-repo/.env
+APP_ENV=DEV
+```
 
 ### Staging
 
@@ -267,7 +275,9 @@ services:
       # staging.compose.yml publishes staging on host port 5001.
       - "5001:5000"
     environment:
-      # staging.env supplies our staging database and application secret.
+      # .env starts at DEV; --deploy-values overwrites it with STAGING.
+      APP_ENV: ${APP_ENV:?APP_ENV is required}
+      # staging.env separately supplies our database and application secret.
       DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
       STAGING_SECRET_KEY: ${STAGING_SECRET_KEY:?STAGING_SECRET_KEY is required}
 ```
@@ -303,6 +313,12 @@ jobs:
           persist-credentials: false
 
       - name: Build, publish, and deploy staging
+        env:
+          # Public values created in memory from this workflow.
+          # APP_ENV overwrites the DEV value in the checked-out .env.
+          DEPLOY_VALUES: |
+            APP_ENV=STAGING
+            APP_IMAGE=${{ env.DEPLOY_IMAGE }}
         run: dagger -W github.com/ninesl/daggerer@master api call \
             # Map our runner-local PAT to the Dockerfile's github_pat secret ID.
             with-build-secret \
@@ -336,8 +352,11 @@ jobs:
             # Run staging.compose.yml from --deploy-directory.
             --compose-file=staging.compose.yml \
 
-            # Pass the same commit image selected by --tag.
-            --deploy-values="APP_IMAGE=$DEPLOY_IMAGE" \
+            # Load our checked-out public runtime defaults, including APP_ENV=DEV.
+            --deploy-env-file=.env \
+
+            # Override APP_ENV with STAGING and pass the commit image selected by --tag.
+            --deploy-values="$DEPLOY_VALUES" \
 
             # Pass our staging DATABASE_URL and STAGING_SECRET_KEY over ssh stdin.
             --deploy-secret-env-file="file://$HOME/secrets/$APPLICATION_NAME/staging.env"
@@ -360,7 +379,9 @@ services:
       # production.compose.yml publishes production on host port 5000.
       - "5000:5000"
     environment:
-      # production.env supplies our production database and application secret.
+      # .env starts at DEV; --deploy-values overwrites it with PRODUCTION.
+      APP_ENV: ${APP_ENV:?APP_ENV is required}
+      # production.env separately supplies our database and application secret.
       DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
       PROD_SECRET_TOKEN: ${PROD_SECRET_TOKEN:?PROD_SECRET_TOKEN is required}
 ```
@@ -396,6 +417,12 @@ jobs:
           persist-credentials: false
 
       - name: Build, publish, and deploy production
+        env:
+          # Public values created in memory from this workflow.
+          # APP_ENV overwrites the DEV value in the checked-out .env.
+          DEPLOY_VALUES: |
+            APP_ENV=PRODUCTION
+            APP_IMAGE=${{ env.DEPLOY_IMAGE }}
         run: dagger -W github.com/ninesl/daggerer@master api call \
             # Map our runner-local PAT to the Dockerfile's github_pat secret ID.
             with-build-secret \
@@ -426,8 +453,11 @@ jobs:
             # Run production.compose.yml from --deploy-directory.
             --compose-file=production.compose.yml \
 
-            # Pass the same default latest image to production.compose.yml.
-            --deploy-values="APP_IMAGE=$DEPLOY_IMAGE" \
+            # Load our checked-out public runtime defaults, including APP_ENV=DEV.
+            --deploy-env-file=.env \
+
+            # Override APP_ENV with PRODUCTION and pass the default latest image.
+            --deploy-values="$DEPLOY_VALUES" \
 
             # Pass our production DATABASE_URL and PROD_SECRET_TOKEN over ssh stdin.
             --deploy-secret-env-file="file://$HOME/secrets/$APPLICATION_NAME/production.env"
