@@ -80,6 +80,8 @@ Daggerer was built with Dagger `v1.0.0-beta.13`; run `dagger version` as the use
 
 This example builds and publishes our application's image to an OCR registry, then deploys it onto the same machine.
 
+> This environment is essentially an [AWS EC2](https://aws.amazon.com/ec2/) instance or similar VPS.
+
 For the Quick Start only, we use the following example filesystem. These paths are ordinary API inputs, not a layout required by Daggerer (or even recommended, these examples are to highlight how inputs can be sourced from anywhere).
 
 ```text
