@@ -37,12 +37,10 @@ The documentation below uses Github Action examples on a self-hosted GitHub runn
 
 > Read through the documentation before adapting an example. The examples favor [grug-brained](https://grugbrain.dev/) development and [locality of behavior](https://htmx.org/essays/locality-of-behaviour/): each workflow passes its choices directly to the Daggerer API.
 
-Daggerer needs a `Dockerfile` to build the application. `deploy` and `release` also require one of these combinations on the deployment host:
+ `deploy` and `release` require either [`docker`](https://docs.docker.com/engine/install/) and [`docker compose`](https://docs.docker.com/compose/install/linux/) or [`podman`](https://podman.io/docs/installation) and [`podman compose`](https://docs.podman.io/en/latest/markdown/podman-compose.1.html) on the deployment host
 
-- [`docker`](https://docs.docker.com/engine/install/) and [`docker compose`](https://docs.docker.com/compose/install/linux/)
-- [`podman`](https://podman.io/docs/installation) and [`podman compose`](https://docs.podman.io/en/latest/markdown/podman-compose.1.html)
 
-`build-only` and `build` do not require `docker` or `podman`, they use the Dagger Engine directly.
+Daggerer needs a `Dockerfile` to build the image. `build-only` and `build` do not require `docker` or `podman`, they use the Dagger Engine directly.
 
 Create a self-hosted runner for your application's repository at `https://github.com/<owner>/<repo>/settings/actions/runners/new`. Install and start it according to GitHub's instructions. This location is your choice; Daggerer does not require a runner filesystem layout.
 
@@ -58,9 +56,9 @@ sudo ./svc.sh status
 
 ## Quick Start
 
-This example builds and publishes the checked-out application, then deploys it back to the same VPS that runs the GitHub runner. It uses `docker`, the default `Dockerfile`, the default `compose.yml`, and the default `latest` tag.
+This example builds and publishes the checked-out repository as OCR image, then deploys it on the same VPS that runs the GitHub runner. 
 
-For the Quick Start only, we use the following example filesystem. These paths are ordinary API inputs, not a layout required by Daggerer:
+For the Quick Start only, we use the following example filesystem. These paths are ordinary API inputs, not a layout required by Daggerer (or even recommended, these examples are to highlight how inputs can be sourced from anywhere).
 
 ```text
 /home/runner/
@@ -89,11 +87,11 @@ services:
       - "5000:5000"
 ```
 
-The application must listen on port `5000` inside its container. The service is then available on port `5000` of the VPS. 
+The application must listen on port `5000` inside its container. The service is then available on port `5000` of the VPS, this is normal `docker compose` behavior.
 
 > In production I use [`caddy`](https://caddyserver.com/docs/quick-starts/reverse-proxy) (simplified replacement for [`nginx`](https://docs.nginx.com/nginx/admin-guide/web-server/reverse-proxy/)) as a reverse proxy.
 
-The example keeps credential files in `$HOME/secrets-actions/my-app` on the VPS. The runner service user must be able to read them. Typed Dagger `Secret` arguments use Dagger's [`file://` secret provider](https://docs.dagger.io/adopting/secrets). Plain string settings are declared in the workflow.
+The example keeps credential files in `$HOME/secrets-actions/my-app` on the VPS. The runner service user must be allowed to read them. The typed `Secret` arguments use Dagger's [`file://` secret provider](https://docs.dagger.io/adopting/secrets). Plain string settings are declared directly in the workflow.
 
 ```yaml
 name: Release
@@ -114,33 +112,37 @@ jobs:
           persist-credentials: false
 
       - name: Build, publish, and deploy
-        run: dagger -W github.com/ninesl/daggerer@master api call release
+        run: dagger -W github.com/ninesl/daggerer@master api call release 
+        # The checked-out application and Docker build context
           --source=.
+        #  OCR registry host and namespace 
           --registry=registry.example.com/team
+        # app name used with registry to create image reference
+        # registry.example.com/team/<app-name>:latest
           --app-name=${{ github.event.repository.name }}
+        # used to credential the OCR pull for deployment
           --registry-username=registry-user
           --registry-password=file://$HOME/secrets-actions/${{ github.event.repository.name }}/registry_password
+        # the ssh user and host hosting the container from the compose.yml
           --ssh-target=runner@runner.example.com
           --ssh-key=file://$HOME/secrets-actions/${{ github.event.repository.name }}/ssh_key
           --known-hosts=file://$HOME/secrets-actions/${{ github.event.repository.name }}/known_hosts
           --deploy-directory=apps/${{ github.event.repository.name }}
+        # the runtime being used on the ssh target.
           --deploy-container-runtime=docker
 ```
 
-Each argument has one job:
+Our Github Action workflow is using these Daggerer defaults:
 
-| Argument | Quick Start value |
-| --- | --- |
-| `--source` | The checked-out application and Docker build context |
-| `--registry` | Registry host and namespace from `REGISTRY_URL` |
-| `--app-name` | The GitHub repository name, producing `<REGISTRY_URL>/my-app:latest` |
-| `--registry-username` / `--registry-password` | Credentials used to verify access, publish, and log in on the deployment host |
-| `--ssh-target` | The `ssh` user and host where Compose runs |
-| `--ssh-key` / `--known-hosts` | `ssh` authentication and verified server identity read from the runner |
-| `--deploy-directory` | `apps/my-app` under the `ssh` user's home |
-| `--deploy-container-runtime` | Selects `docker` for remote login, pull, and Compose |
+```yaml
+--tag=latest
+--dockerfile=Dockerfile
+--compose-file=compose.yml 
+```
 
-`release` passes the same `--registry`, `--app-name`, and tag to both `build` and `deploy`. It defaults to `--tag=latest`, `--dockerfile=Dockerfile`, and `--compose-file=compose.yml`. With `REGISTRY_URL=registry.example.com/team`, it publishes and pulls `registry.example.com/team/my-app:latest`, sets `APP_IMAGE` for Compose, and runs:
+`release` uses the same `--registry`, `--app-name`, and `--tag` for both `build` and `deploy` api calls internally.
+
+This workflow builds and publishes `registry.example.com/team/my-app:latest`, `ssh`s with secret credenttials to `--ssh-target`, and does our application specific sets `APP_IMAGE=registry.example.com/team/my-app:latest` that our application-specific `compose.yml`. This essentially looks like this on the `--ssh-target`:
 
 ```bash
 cd "$HOME/apps/my-app" && \
@@ -152,38 +154,20 @@ Any failed registry, build, publish, `ssh`, pull, or Compose step stops the rele
 
 ## Staging And Production
 
-The following pair is a practical extension of Quick Start:
+The following pair is an extension of Quick Start:
 
 | | Staging | Production |
 | --- | --- | --- |
 | Trigger | Branches other than `master`/`main` | `master` and `main` |
 | Deployment host | The local runner VPS | An external `ssh` server |
-| Runtime | Podman | Docker |
-| Tag | Commit SHA | Commit SHA |
-| Directory | `$HOME/apps/my-app/staging` | `$HOME/apps/my-app/production` |
+| Runtime | `podman` | `docker` |
+| Tag | Commit SHA | `latest` |
+| Directory | `$HOME/staging/my-app/` | `$HOME/prod/my-app/` |
 
-Both hosts use the same Compose file shape. Place it at the selected deployment directory as `compose.yml`:
-
-```yaml
-services:
-  app:
-    image: ${APP_IMAGE:?APP_IMAGE is required}
-    restart: unless-stopped
-    ports:
-      - "5000:5000"
-    env_file:
-      - runtime.env
-    secrets:
-      - app_token
-
-secrets:
-  app_token:
-    file: ./secrets/app_token
-```
 
 Provision `runtime.env` and `secrets/app_token` independently on each host. They configure the running application and never enter the Dagger build. See Compose documentation for [`env_file`](https://docs.docker.com/reference/compose-file/services/#env_file) and [`secrets`](https://docs.docker.com/reference/compose-file/secrets/).
 
-In this example, the runner VPS also hosts staging. We chose the following filesystem to keep each application's runner, credentials, and Compose project together. Daggerer does not require these directory names:
+In this example, the runner VPS also hosts staging. We chose the following filesystem to keep each application's runner. Daggerer does not require these directory names:
 
 ```text
 /home/runner/
@@ -198,29 +182,47 @@ In this example, the runner VPS also hosts staging. We chose the following files
 │   └── my-app/              # GitHub Actions self-hosted runner for my-app
 │       ├── run.sh
 │       └── svc.sh
-└── apps/
+└── staging/
     └── my-app/
-        └── staging/
-            ├── compose.yml
-            ├── runtime.env
-            └── secrets/
-                └── app_token
+        ├── dev.compose.yml
+        ├── .env
+        └── secrets/
+            └── app_token
 ```
 
-The external production host contains only its independently provisioned Compose project and runtime secrets:
+```yaml
+# dev.compose.yml
+services:
+  app:
+    image: ${APP_IMAGE:?APP_IMAGE is required}
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    env_file:
+      - .env
+    secrets:
+      - app_token
+
+secrets:
+  app_token:
+    file: ./secrets/app_token
+```
+
+
+The external production host contains only its independently provisioned `prod.compose.yml` and runtime secrets/data:
 
 ```text
 /home/deploy/
 └── apps/
     └── my-app/
         └── production/
-            ├── compose.yml
-            ├── runtime.env
+            ├── prod.compose.yml
+            ├── prod.env
             └── secrets/
                 └── app_token
 ```
 
-The staging public key is authorized for the runner user on the runner VPS. The production public key is authorized for the deployment user on the external server. Each `known_hosts` file contains the verified key for only its target.
+The staging public key is authorized for the runner user on the runner VPS. The production public key is authorized for the deployment user on the external VPS. Each `known_hosts` file contains the verified key for only its target.
 
 ### Staging: Local Runner VPS With Podman
 
@@ -249,21 +251,18 @@ jobs:
           --source=.
           --registry=registry.example.com/team
           --app-name=${{ github.event.repository.name }}
+        # gives each staging build an immutable commit-specific image tag.
           --tag=${{ github.sha }}
           --registry-username=registry-user
           --registry-password=file://$HOME/secrets-actions/${{ github.event.repository.name }}/registry_password
+        # points back to the runner VPS using an address reachable from Dagger's container network.
           --ssh-target=runner@runner.example.com
           --ssh-key=file://$HOME/secrets-actions/${{ github.event.repository.name }}/staging_ssh_key
           --known-hosts=file://$HOME/secrets-actions/${{ github.event.repository.name }}/staging_known_hosts
-          --deploy-directory=apps/${{ github.event.repository.name }}/staging
+          --deploy-directory=staging/${{ github.event.repository.name }}
           --deploy-container-runtime=podman
 ```
 
-- `--tag=${{ github.sha }}` gives each staging build an immutable commit-specific image tag.
-- `--ssh-target` points back to the runner VPS using an address reachable from Dagger's container network.
-- `--ssh-key` and `--known-hosts` select the staging credentials on that same VPS.
-- `--deploy-directory` selects the staging Compose project under the runner user's home.
-- `--deploy-container-runtime=podman` runs `podman login`, `podman pull`, and `podman compose` on staging.
 
 ### Production: External `ssh` Server With Docker
 
