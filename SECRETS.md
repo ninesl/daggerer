@@ -29,8 +29,8 @@ chmod 600 "$HOME/secrets/my-app"/*
 The release workflows use three Dagger Secret inputs for infrastructure access:
 
 - `--registry-password` authenticates both the image publish and registry login on `--ssh-target`.
-- `--ssh-key` authenticates the SSH user selected by `--ssh-target`.
-- `--known-hosts` supplies the verified host key used for strict SSH host checking.
+- `--ssh-key` authenticates the `ssh` user selected by `--ssh-target`.
+- `--known-hosts` supplies the verified host key used for strict `ssh` host checking.
 
 These inputs accept either `file://` or `env://`. The README uses runner-local `file://` paths so the source of each credential is visible beside the API call.
 
@@ -68,7 +68,7 @@ Dagger `v1.0.0-beta.13` does not let `Directory.DockerBuild` directly pair an ar
 
 The secret briefly exists in module memory during that assignment. Daggerer does not log, parse, write, or include it in errors. Restrict who can modify or invoke this module because code running inside the module shares that trust boundary.
 
-This workaround may be deprecated or removed when DockerBuild accepts native `{id, secret}` inputs. Track [dagger/dagger#7358](https://github.com/dagger/dagger/issues/7358), [dagger/dagger#9437](https://github.com/dagger/dagger/issues/9437), and [PR #8058](https://github.com/dagger/dagger/pull/8058).
+Native `{id, secret}` DockerBuild support is discussed in [dagger/dagger#7358](https://github.com/dagger/dagger/issues/7358), [dagger/dagger#9437](https://github.com/dagger/dagger/issues/9437), and [dagger/dagger#8058](https://github.com/dagger/dagger/pull/8058).
 
 Keeping the build in a Dockerfile gives up some native Dagger programmability, composition, and direct `WithMountedSecret` handling. Daggerer accepts that tradeoff so an existing Dockerfile can still use Dagger's portable execution, graph caching, observability, publishing, and release orchestration.
 
@@ -88,17 +88,11 @@ DATABASE_URL=postgres://app:production-password@prod-db.internal:5432/my_app
 APP_SECRET=replace-with-production-secret
 ```
 
-Daggerer validates the original Secret, then streams its values over SSH stdin to the remote Compose process. The values do not return through the Dagger API, become command-line arguments, or get written to the checkout or `--ssh-target`.
+Daggerer validates the original Secret, then streams its values over `ssh` stdin. Staging supplies `staging.env` to `podman compose`; production supplies `production.env` to `docker compose`. The values do not return through the Dagger API, become command-line arguments, or get written to the checkout or `--ssh-target`.
 
-The file selected by `--compose-file` decides which forwarded values enter the running container. Both example files require the same application variables:
+The [`staging.compose.yml` example](README.md#staging-target-yaml) and [`production.compose.yml` example](README.md#production-target-yaml) each choose which forwarded values enter their running container. Both explicitly require `DATABASE_URL` and `APP_SECRET`.
 
-```yaml
-environment:
-  DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
-  APP_SECRET: ${APP_SECRET:?APP_SECRET is required}
-```
-
-Users with sufficient Docker or Podman access can inspect a container's runtime environment. Daggerer also cannot prevent application, Dockerfile, or Compose logic from disclosing a value it receives.
+Users with sufficient `podman` or `docker` access can inspect a container's runtime environment. Daggerer also cannot prevent application, Dockerfile, `podman compose`, or `docker compose` logic from disclosing a value it receives.
 
 ## Public Values
 

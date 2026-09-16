@@ -84,7 +84,7 @@ The following layout is **not** required by Daggerer, or really recommended. My 
 
 These filesystem paths become Daggerer's API inputs.
 
-See [Credentials](SECRETS.md#credentials) for the registry password, SSH key, and known-hosts files used below.
+See [Deployment Credentials](SECRETS.md#deployment-credentials) for the registry password, `ssh` key, and known-hosts files used below.
 
 ```bash
 # VPS filesystem
@@ -208,10 +208,10 @@ Any failed registry, build, publish, `ssh`, pull, or `docker compose -f compose.
 
 This example calls the same Daggerer `release` function from two workflows:
 
-- Staging builds on the self-hosted runner and deploys back to that VPS with Podman.
-- Production builds on the same runner and deploys to a separate VPS with Docker.
+- Staging builds on the self-hosted runner and runs `podman compose` on that VPS.
+- Production builds on the same runner and runs `docker compose` on a separate VPS.
 
-Unlike Quick Start, neither target uses the default `compose.yml`. Our application exposes a different host port in each environment and may apply different resource limits, so each workflow explicitly selects its target's file with `--compose-file`.
+Our application uses a different host port and different application environment values in each environment. The staging and production workflows therefore select different target YAML with `--compose-file`.
 
 ### Filesystem
 
@@ -249,7 +249,9 @@ The files under `/home/runner/secrets/my-app` are caller-local inputs, not files
 
 ### Staging
 
-Branches other than `main` and `master` publish an immutable commit tag and deploy it to the staging `--ssh-target`.
+Branches other than `main` and `master` publish an immutable commit tag and deploy it to the staging `--ssh-target` with `podman compose`.
+
+#### Staging Target YAML
 
 ```yaml
 # /home/runner/staging/my-app/staging.compose.yml on the staging --ssh-target.
@@ -259,22 +261,21 @@ services:
     image: ${APP_IMAGE:?APP_IMAGE is required}
     restart: unless-stopped
     ports:
-      # Keep staging available on a separate host port from our production convention.
+      # staging.compose.yml publishes staging on host port 5001.
       - "5001:5000"
     environment:
-      # --deploy-secret-env-file supplies these values only to the Compose process.
+      # FOO represents configuration used only by our staging application.
+      FOO: staging-value
+      # staging.env supplies these values only to this podman compose process.
       DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
       APP_SECRET: ${APP_SECRET:?APP_SECRET is required}
-    # Optional staging limits; enable these only when the target's Compose implementation
-    # supports and enforces deploy resources.
-    # deploy:
-    #   resources:
-    #     limits:
-    #       cpus: "0.50"
-    #       memory: 256M
 ```
 
-The workflow sets `--compose-file=staging.compose.yml` because Daggerer otherwise looks for the default `compose.yml` inside `--deploy-directory`.
+`--compose-file=staging.compose.yml` selects this staging-only port and `FOO` value. The private values come from `staging.env` as explained in [Deployment Environment Secrets](SECRETS.md#deployment-environment-secrets).
+
+#### Staging Workflow
+
+`with-build-secret` supplies the private dependency PAT described in [Dockerfile Build Secrets](SECRETS.md#dockerfile-build-secrets). The staging `--registry-password`, `--ssh-key`, and `--known-hosts` files are described in [Deployment Credentials](SECRETS.md#deployment-credentials).
 
 ```yaml
 # .github/workflows/staging.yml
@@ -291,7 +292,9 @@ jobs:
   release:
     runs-on: [self-hosted, linux, x64]
     env:
+      # Used by --app-name and our runner-local file paths.
       APPLICATION_NAME: my-app
+      # The immutable image published from this branch commit.
       DEPLOY_IMAGE: registry.example.com/team/my-app:${{ github.sha }}
     steps:
       - uses: actions/checkout@v5
@@ -299,34 +302,51 @@ jobs:
           persist-credentials: false
 
       - name: Build, publish, and deploy staging
-        run: |
-          # with-build-secret maps our runner-local PAT to the Dockerfile's github_pat ID.
-          # release builds this checkout, publishes the commit tag, and deploys it with
-          # the target-side staging.compose.yml selected by --compose-file.
-          dagger -W github.com/ninesl/daggerer@master api call \
+        run: dagger -W github.com/ninesl/daggerer@master api call \
+            # Map our runner-local PAT to the Dockerfile's github_pat secret ID.
             with-build-secret \
             --id=github_pat \
             --secret="file://$HOME/secrets/$APPLICATION_NAME/github_pat" \
+
+            # Build this checkout, publish its image, and deploy the same tag.
             release \
             --source=. \
             --registry=registry.example.com/team \
             --app-name="$APPLICATION_NAME" \
+
+            # Publish and deploy this branch commit's immutable image tag.
             --tag=${{ github.sha }} \
+
+            # Use the shared registry credentials for publishing and the staging pull.
             --registry-username=registry-user \
             --registry-password="file://$HOME/secrets/$APPLICATION_NAME/registry_password" \
+
+            # Deploy back to the runner VPS with staging-specific ssh credentials.
             --ssh-target=runner@runner.example.com \
             --ssh-key="file://$HOME/secrets/$APPLICATION_NAME/staging_ssh_key" \
             --known-hosts="file://$HOME/secrets/$APPLICATION_NAME/staging_known_hosts" \
+
+            # Run podman compose on the staging --ssh-target.
             --deploy-container-runtime=podman \
+
+            # Select /home/runner/staging/my-app on the staging --ssh-target.
             --deploy-directory="staging/$APPLICATION_NAME" \
+
+            # Select the staging port and staging-only FOO value shown above.
             --compose-file=staging.compose.yml \
+
+            # Supply the exact commit image required by staging.compose.yml.
             --deploy-values="APP_IMAGE=$DEPLOY_IMAGE" \
+
+            # Supply the staging DATABASE_URL and APP_SECRET over ssh stdin.
             --deploy-secret-env-file="file://$HOME/secrets/$APPLICATION_NAME/staging.env"
 ```
 
 ### Production
 
-Pushes to `main` or `master` publish `latest` and deploy it to the production `--ssh-target`.
+Pushes to `main` or `master` publish `latest` and deploy it to the production `--ssh-target` with `docker compose`.
+
+#### Production Target YAML
 
 ```yaml
 # /home/deploy/apps/my-app/production.compose.yml on the production --ssh-target.
@@ -336,22 +356,21 @@ services:
     image: ${APP_IMAGE:?APP_IMAGE is required}
     restart: unless-stopped
     ports:
-      # Production keeps the public host port used by our application.
+      # production.compose.yml publishes production on host port 5000.
       - "5000:5000"
     environment:
-      # --deploy-secret-env-file supplies these values only to the Compose process.
+      # BAR represents configuration used only by our production application.
+      BAR: production-value
+      # production.env supplies these values only to this docker compose process.
       DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
       APP_SECRET: ${APP_SECRET:?APP_SECRET is required}
-    # Optional production limits can be larger than staging. Enable these only when
-    # the target's Compose implementation supports and enforces deploy resources.
-    # deploy:
-    #   resources:
-    #     limits:
-    #       cpus: "1.0"
-    #       memory: 512M
 ```
 
-The workflow sets `--compose-file=production.compose.yml`; this file is independent of `staging.compose.yml` and the default `compose.yml`.
+`--compose-file=production.compose.yml` selects this production-only port and `BAR` value. The private values come from `production.env` as explained in [Deployment Environment Secrets](SECRETS.md#deployment-environment-secrets).
+
+#### Production Workflow
+
+Production reuses the [Dockerfile Build Secret](SECRETS.md#dockerfile-build-secrets) and registry password, then selects the production `ssh` files described in [Deployment Credentials](SECRETS.md#deployment-credentials).
 
 ```yaml
 # .github/workflows/production.yml
@@ -368,7 +387,9 @@ jobs:
   release:
     runs-on: [self-hosted, linux, x64]
     env:
+      # Used by --app-name and our runner-local file paths.
       APPLICATION_NAME: my-app
+      # The image published from main/master for production.
       DEPLOY_IMAGE: registry.example.com/team/my-app:latest
     steps:
       - uses: actions/checkout@v5
@@ -376,31 +397,47 @@ jobs:
           persist-credentials: false
 
       - name: Build, publish, and deploy production
-        run: |
-          # Build on the runner, then use the production SSH credentials and target-side
-          # production.compose.yml for the deployment.
-          dagger -W github.com/ninesl/daggerer@master api call \
+        run: dagger -W github.com/ninesl/daggerer@master api call \
+            # Map our runner-local PAT to the Dockerfile's github_pat secret ID.
             with-build-secret \
             --id=github_pat \
             --secret="file://$HOME/secrets/$APPLICATION_NAME/github_pat" \
+
+            # Build this checkout, publish its image, and deploy the same tag.
             release \
             --source=. \
             --registry=registry.example.com/team \
             --app-name="$APPLICATION_NAME" \
+
+            # Publish and deploy the production latest tag.
             --tag=latest \
+
+            # Use the shared registry credentials for publishing and the production pull.
             --registry-username=registry-user \
             --registry-password="file://$HOME/secrets/$APPLICATION_NAME/registry_password" \
+
+            # Deploy to the production VPS with production-specific ssh credentials.
             --ssh-target=deploy@prod.example.com \
             --ssh-key="file://$HOME/secrets/$APPLICATION_NAME/production_ssh_key" \
             --known-hosts="file://$HOME/secrets/$APPLICATION_NAME/production_known_hosts" \
+
+            # Run docker compose on the production --ssh-target.
             --deploy-container-runtime=docker \
+
+            # Select /home/deploy/apps/my-app on the production --ssh-target.
             --deploy-directory="apps/$APPLICATION_NAME" \
+
+            # Select the production port and production-only BAR value shown above.
             --compose-file=production.compose.yml \
+
+            # Supply the latest image required by production.compose.yml.
             --deploy-values="APP_IMAGE=$DEPLOY_IMAGE" \
+
+            # Supply the production DATABASE_URL and APP_SECRET over ssh stdin.
             --deploy-secret-env-file="file://$HOME/secrets/$APPLICATION_NAME/production.env"
 ```
 
-Both releases stop on registry, build, publish, SSH, pull, or Compose errors. Daggerer does not discover these files or environment variables: every path and value is an explicit workflow input.
+The staging release stops on registry, build, publish, `ssh`, pull, or `podman compose` errors. The production release stops on the corresponding `docker compose` errors. Daggerer does not discover these files or environment variables: every path and value is an explicit workflow input.
 
 [dagger-build]: https://docs.dagger.io/reference/api/directory#dockerBuild
 [dagger-container]: https://docs.dagger.io/reference/api/container
