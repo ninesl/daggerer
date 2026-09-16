@@ -24,7 +24,9 @@ dagger -W github.com/ninesl/daggerer@master api call function --arguments
 
 ## Contents
 
-The examples describe our sample application, `my-app`, using GitHub Actions on a self-hosted runner. Workflow commands are annotated parameter-by-parameter for reading and adaptation.
+The examples describe our sample application, `my-app`, using GitHub Actions on a self-hosted runner.
+
+> Read through the documentation before adapting an example. The examples favor [grug-brained](https://grugbrain.dev/) development and [locality of behavior](https://htmx.org/essays/locality-of-behaviour/): each workflow passes its choices directly to the Daggerer API.
 
 - [Quick Reference](#quick-reference)
 - [Prerequisites](#prerequisites)
@@ -38,31 +40,45 @@ The examples describe our sample application, `my-app`, using GitHub Actions on 
 
 ## Prerequisites
 
-> Read through the documentation before adapting an example. The examples favor [grug-brained](https://grugbrain.dev/) development and [locality of behavior](https://htmx.org/essays/locality-of-behaviour/): each workflow passes its choices directly to the Daggerer API.
+`deploy` and `release` require either:
 
- `deploy` and `release` require either [`docker`](https://docs.docker.com/engine/install/) and [`docker compose`](https://docs.docker.com/compose/install/linux/) or [`podman`](https://podman.io/docs/installation) and [`podman compose`](https://docs.podman.io/en/latest/markdown/podman-compose.1.html) on the `ssh` target
+- [`docker`](https://docs.docker.com/engine/install/) and [`docker compose`](https://docs.docker.com/compose/install/linux/) 
 
+or 
 
-Daggerer needs a `Dockerfile` to build the image. `build-only` and `build` do not require `docker` or `podman`, they use the Dagger Engine directly.
+- [`podman`](https://podman.io/docs/installation) and [`podman compose`](https://docs.podman.io/en/latest/markdown/podman-compose.1.html) 
 
-Create a self-hosted runner for your application's repository at `https://github.com/<owner>/<repo>/settings/actions/runners/new`. Install and start it according to GitHub's instructions. This location is your choice; Daggerer does not require a runner filesystem layout.
+installed on the `ssh` target. This does NOT need to match Dagger's runtime, Dagger just needs to build and publish an OCR image.
 
-From the directory where you installed the runner, the GitHub setup instructions use:
+Daggerer needs a `Dockerfile` to build the image.
+
+`build-only` and `build` **DO NOT** require `docker` or `podman`, they use the self-hosted runner's Dagger Engine directly.
+
+> [TODO: An external Dagger Engine target API is planned](link to dagger.io docs on how a dagger cli can connect to an external (like remote) dagger engine)
+
+Create a self-hosted runner for your application's repository at `https://github.com/<owner>/<repo>/settings/actions/runners/new`. 
+
+Install and start the runner according to GitHub's instructions. This location is your choice; Daggerer can be run anywhere that has access to the Dagger Engine.
+
+From the directory where you installed the runner, the GitHub setup instructions use for persistence:
 
 ```bash
-# Run from the runner installation directory; use the current user as the service user.
+# Ran from the runner installation directory
+# The current user (which will use Dagger CLI) is our runner's user
 sudo ./svc.sh install "$USER"
-# Start the runner service.
+# Start the runner
 sudo ./svc.sh start
-# Inspect the runner service status.
+# Inspect the runner's status
 sudo ./svc.sh status
 ```
 
-[Install the Dagger CLI](https://docs.dagger.io/getting-started/install) for the Linux user that owns the runner service. Daggerer was built with Dagger `v1.0.0-beta.13`; run `dagger version` as the user to verify access to the CLI and Dagger Engine.
+[Install the Dagger CLI](https://docs.dagger.io/getting-started/install) for the same `$USER` as your runner service. 
+
+Daggerer was built with Dagger `v1.0.0-beta.13`; run `dagger version` as the user to verify access to the CLI and Dagger Engine.
 
 ## Quick Start
 
-This example builds and publishes our application's image, then deploys it on the runner VPS.
+This example builds and publishes our application's image to an OCR registry, then deploys it onto the same machine.
 
 For the Quick Start only, we use the following example filesystem. These paths are ordinary API inputs, not a layout required by Daggerer (or even recommended, these examples are to highlight how inputs can be sourced from anywhere).
 
