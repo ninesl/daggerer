@@ -17,6 +17,14 @@ type Daggerer struct { // daggerer (../../../:0:0)
 	id      *ID
 	release *Void
 }
+type WithDaggererFunc func(r *Daggerer) *Daggerer
+
+// With calls the provided function with current Daggerer.
+//
+// This is useful for reusability and readability by not breaking the calling chain.
+func (r *Daggerer) With(f WithDaggererFunc) *Daggerer {
+	return f(r)
+}
 
 func (r *Daggerer) WithGraphQLQuery(q *querybuilder.Selection) *Daggerer {
 	return &Daggerer{
@@ -37,10 +45,6 @@ type DaggererBuildOpts struct {
 	BuildEnvFile *File
 	// Public dotenv text, parsed by Dagger; overrides buildEnvFile values. Never supply credentials here.
 	BuildValues string
-	// Private dotenv Secret parsed and merged into the BuildKit secret build_env.
-	BuildSecretEnvFile *Secret
-	// Private dotenv Secret text; overrides buildSecretEnvFile values.
-	BuildSecretValues *Secret
 }
 
 // Build and publish an image. Returns the deployed image and tag.
@@ -68,14 +72,6 @@ func (r *Daggerer) Build(ctx context.Context, source *Directory, registry string
 		if !querybuilder.IsZeroValue(opts[i].BuildValues) {
 			q = q.Arg("buildValues", opts[i].BuildValues)
 		}
-		// `buildSecretEnvFile` optional argument
-		if !querybuilder.IsZeroValue(opts[i].BuildSecretEnvFile) {
-			q = q.Arg("buildSecretEnvFile", opts[i].BuildSecretEnvFile)
-		}
-		// `buildSecretValues` optional argument
-		if !querybuilder.IsZeroValue(opts[i].BuildSecretValues) {
-			q = q.Arg("buildSecretValues", opts[i].BuildSecretValues)
-		}
 	}
 	q = q.Arg("source", source)
 	q = q.Arg("registry", registry)
@@ -95,10 +91,6 @@ type DaggererBuildOnlyOpts struct {
 	BuildEnvFile *File
 	// Public dotenv text, parsed by Dagger; overrides buildEnvFile values. Never supply credentials here.
 	BuildValues string
-	// Private dotenv Secret parsed and merged into the BuildKit secret build_env.
-	BuildSecretEnvFile *Secret
-	// Private dotenv Secret text; overrides buildSecretEnvFile values.
-	BuildSecretValues *Secret
 	// Dockerfile path relative to the build context.
 	//
 	// Default: "Dockerfile"
@@ -117,14 +109,6 @@ func (r *Daggerer) BuildOnly(source *Directory, opts ...DaggererBuildOnlyOpts) *
 		// `buildValues` optional argument
 		if !querybuilder.IsZeroValue(opts[i].BuildValues) {
 			q = q.Arg("buildValues", opts[i].BuildValues)
-		}
-		// `buildSecretEnvFile` optional argument
-		if !querybuilder.IsZeroValue(opts[i].BuildSecretEnvFile) {
-			q = q.Arg("buildSecretEnvFile", opts[i].BuildSecretEnvFile)
-		}
-		// `buildSecretValues` optional argument
-		if !querybuilder.IsZeroValue(opts[i].BuildSecretValues) {
-			q = q.Arg("buildSecretValues", opts[i].BuildSecretValues)
 		}
 		// `dockerfile` optional argument
 		if !querybuilder.IsZeroValue(opts[i].Dockerfile) {
@@ -147,10 +131,8 @@ type DaggererDeployOpts struct {
 	DeployEnvFile *File
 	// Public dotenv text; overrides deployEnvFile values. No application variable names are implied.
 	DeployValues string
-	// Private dotenv Secret base forwarded only to the remote Compose process.
+	// Private NAME=literal-value dotenv base file Secret; must use file://.
 	DeploySecretEnvFile *Secret
-	// Private dotenv text; overrides deploySecretEnvFile values.
-	DeploySecretValues *Secret
 
 	// Default: "compose.yml"
 	ComposeFile string
@@ -181,10 +163,6 @@ func (r *Daggerer) Deploy(ctx context.Context, registry string, appName string, 
 		// `deploySecretEnvFile` optional argument
 		if !querybuilder.IsZeroValue(opts[i].DeploySecretEnvFile) {
 			q = q.Arg("deploySecretEnvFile", opts[i].DeploySecretEnvFile)
-		}
-		// `deploySecretValues` optional argument
-		if !querybuilder.IsZeroValue(opts[i].DeploySecretValues) {
-			q = q.Arg("deploySecretValues", opts[i].DeploySecretValues)
 		}
 		// `composeFile` optional argument
 		if !querybuilder.IsZeroValue(opts[i].ComposeFile) {
@@ -263,10 +241,8 @@ type DaggererReleaseOpts struct {
 	DeployEnvFile *File
 	// Public dotenv text; overrides deployEnvFile values. No application variable names are implied.
 	DeployValues string
-	// Private dotenv Secret base forwarded only to the remote Compose process.
+	// Private NAME=literal-value dotenv base file Secret; must use file://.
 	DeploySecretEnvFile *Secret
-	// Private dotenv text; overrides deploySecretEnvFile values.
-	DeploySecretValues *Secret
 	// Compose file name that is in the deploy directory.
 	//
 	// Default: "compose.yml"
@@ -275,10 +251,6 @@ type DaggererReleaseOpts struct {
 	BuildEnvFile *File
 	// Public dotenv text, parsed by Dagger; overrides buildEnvFile values. Never supply credentials here.
 	BuildValues string
-	// Private dotenv Secret parsed and merged into the BuildKit secret build_env.
-	BuildSecretEnvFile *Secret
-	// Private dotenv Secret text; overrides buildSecretEnvFile values.
-	BuildSecretValues *Secret
 
 	// Default: "Dockerfile"
 	Dockerfile string
@@ -311,10 +283,6 @@ func (r *Daggerer) Release(ctx context.Context, source *Directory, registry stri
 		if !querybuilder.IsZeroValue(opts[i].DeploySecretEnvFile) {
 			q = q.Arg("deploySecretEnvFile", opts[i].DeploySecretEnvFile)
 		}
-		// `deploySecretValues` optional argument
-		if !querybuilder.IsZeroValue(opts[i].DeploySecretValues) {
-			q = q.Arg("deploySecretValues", opts[i].DeploySecretValues)
-		}
 		// `composeFile` optional argument
 		if !querybuilder.IsZeroValue(opts[i].ComposeFile) {
 			q = q.Arg("composeFile", opts[i].ComposeFile)
@@ -326,14 +294,6 @@ func (r *Daggerer) Release(ctx context.Context, source *Directory, registry stri
 		// `buildValues` optional argument
 		if !querybuilder.IsZeroValue(opts[i].BuildValues) {
 			q = q.Arg("buildValues", opts[i].BuildValues)
-		}
-		// `buildSecretEnvFile` optional argument
-		if !querybuilder.IsZeroValue(opts[i].BuildSecretEnvFile) {
-			q = q.Arg("buildSecretEnvFile", opts[i].BuildSecretEnvFile)
-		}
-		// `buildSecretValues` optional argument
-		if !querybuilder.IsZeroValue(opts[i].BuildSecretValues) {
-			q = q.Arg("buildSecretValues", opts[i].BuildSecretValues)
 		}
 		// `dockerfile` optional argument
 		if !querybuilder.IsZeroValue(opts[i].Dockerfile) {
@@ -352,6 +312,18 @@ func (r *Daggerer) Release(ctx context.Context, source *Directory, registry stri
 	q = q.Arg("registryPassword", registryPassword)
 
 	return q.Execute(ctx)
+}
+
+// WithBuildSecret adds a named BuildKit secret to the next chained build, build-only, or release call.
+func (r *Daggerer) WithBuildSecret(id string, secret *Secret) *Daggerer {
+	assertNotNil("secret", secret)
+	q := r.query.Select("withBuildSecret")
+	q = q.Arg("id", id)
+	q = q.Arg("secret", secret)
+
+	return &Daggerer{
+		query: q,
+	}
 }
 
 func (r *Query) Daggerer() *Daggerer { // daggerer (../../../:0:0)

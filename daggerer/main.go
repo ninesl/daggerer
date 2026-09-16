@@ -7,10 +7,14 @@ import (
 	"strings"
 
 	"dagger/daggerer/internal/dagger"
-	"dagger/daggerer/internal/envmerge"
 )
 
-type Daggerer struct{}
+type Daggerer struct {
+	// +private
+	BuildSecretIDs []string
+	// +private
+	BuildSecretValues []*dagger.Secret
+}
 
 const (
 	sshKeyMountPath           = "/run/secrets/ssh_key"
@@ -29,12 +33,6 @@ func (m *Daggerer) BuildOnly(
 	// Public dotenv text, parsed by Dagger; overrides buildEnvFile values. Never supply credentials here.
 	// +optional
 	buildValues string,
-	// Private dotenv Secret parsed and merged into the BuildKit secret build_env.
-	// +optional
-	buildSecretEnvFile *dagger.Secret,
-	// Private dotenv Secret text; overrides buildSecretEnvFile values.
-	// +optional
-	buildSecretValues *dagger.Secret,
 	// Dockerfile path relative to the build context.
 	// +default="Dockerfile"
 	dockerfile string,
@@ -42,26 +40,16 @@ func (m *Daggerer) BuildOnly(
 	opts := dagger.DirectoryDockerBuildOpts{
 		Dockerfile: dockerfile,
 	}
-	args, err := publicEnvArguments(ctx, buildEnvFile, buildValues)
+	_, args, err := publicEnvironment(ctx, buildEnvFile, buildValues)
 	if err != nil {
 		return nil, err
 	}
 	opts.BuildArgs = args
-	secretValues, err := secretEnvArguments(ctx, buildSecretEnvFile, buildSecretValues)
+	secrets, err := m.dockerBuildSecrets(ctx)
 	if err != nil {
 		return nil, err
 	}
-	if err := rejectSecretCollisions("build", args, secretValues); err != nil {
-		return nil, err
-	}
-	if len(secretValues) > 0 {
-		contents, err := shellDotenv(secretValues)
-		if err != nil {
-			return nil, err
-		}
-		secret := dag.SetSecret("build_env", contents)
-		opts.Secrets = []*dagger.Secret{secret}
-	}
+	opts.Secrets = secrets
 	return source.DockerBuild(opts), nil
 }
 
@@ -88,14 +76,8 @@ func (m *Daggerer) Build(
 	// Public dotenv text, parsed by Dagger; overrides buildEnvFile values. Never supply credentials here.
 	// +optional
 	buildValues string,
-	// Private dotenv Secret parsed and merged into the BuildKit secret build_env.
-	// +optional
-	buildSecretEnvFile *dagger.Secret,
-	// Private dotenv Secret text; overrides buildSecretEnvFile values.
-	// +optional
-	buildSecretValues *dagger.Secret,
 ) (string, error) {
-	container, err := m.BuildOnly(ctx, source, buildEnvFile, buildValues, buildSecretEnvFile, buildSecretValues, dockerfile)
+	container, err := m.BuildOnly(ctx, source, buildEnvFile, buildValues, dockerfile)
 	if err != nil {
 		return "", err
 	}
@@ -136,12 +118,9 @@ func (m *Daggerer) Release(
 	// Public dotenv text; overrides deployEnvFile values. No application variable names are implied.
 	// +optional
 	deployValues string,
-	// Private dotenv Secret base forwarded only to the remote Compose process.
+	// Private NAME=literal-value dotenv base file Secret; must use file://.
 	// +optional
 	deploySecretEnvFile *dagger.Secret,
-	// Private dotenv text; overrides deploySecretEnvFile values.
-	// +optional
-	deploySecretValues *dagger.Secret,
 	// Compose file name that is in the deploy directory.
 	// +default="compose.yml"
 	composeFile string,
@@ -155,26 +134,27 @@ func (m *Daggerer) Release(
 	// Public dotenv text, parsed by Dagger; overrides buildEnvFile values. Never supply credentials here.
 	// +optional
 	buildValues string,
-	// Private dotenv Secret parsed and merged into the BuildKit secret build_env.
-	// +optional
-	buildSecretEnvFile *dagger.Secret,
-	// Private dotenv Secret text; overrides buildSecretEnvFile values.
-	// +optional
-	buildSecretValues *dagger.Secret,
 	// +default="Dockerfile"
 	dockerfile string,
 ) error {
 	if err := validateDeployRuntime(deployContainerRuntime); err != nil {
 		return err
 	}
-	if _, _, err := deploymentEnv(ctx, deployEnvFile, deployValues, deploySecretEnvFile, deploySecretValues); err != nil {
-		return err
-	}
-	_, err := m.Build(ctx, source, registry, appName, tag, registryUsername, registryPassword, dockerfile, buildEnvFile, buildValues, buildSecretEnvFile, buildSecretValues)
+	deployEnv, err := deploymentEnv(ctx, deployEnvFile, deployValues, deploySecretEnvFile)
 	if err != nil {
 		return err
 	}
-	return m.Deploy(ctx, registry, appName, tag, sshTarget, sshKey, knownHosts, deployDirectory, deployEnvFile, deployValues, deploySecretEnvFile, deploySecretValues, deployContainerRuntime, composeFile, registryUsername, registryPassword)
+	_, err = m.Build(ctx, source, registry, appName, tag, registryUsername, registryPassword, dockerfile, buildEnvFile, buildValues)
+	if err != nil {
+		return err
+	}
+	return m.deployComposeImage(deployComposeParams{
+		ctx: ctx, sshTarget: sshTarget, deployDirectory: deployDirectory,
+		image: registry + "/" + appName + ":" + tag, composeRuntime: deployContainerRuntime, composeFile: composeFile,
+		registry: registryHost(registry), registryUsername: registryUsername,
+		sshKey: sshKey, knownHosts: knownHosts, registryPassword: registryPassword,
+		deployEnv: deployEnv, deploySecretEnvFile: deploySecretEnvFile,
+	})
 }
 
 // Deploy an existing image with Compose.
@@ -199,12 +179,9 @@ func (m *Daggerer) Deploy(
 	// Public dotenv text; overrides deployEnvFile values. No application variable names are implied.
 	// +optional
 	deployValues string,
-	// Private dotenv Secret base forwarded only to the remote Compose process.
+	// Private NAME=literal-value dotenv base file Secret; must use file://.
 	// +optional
 	deploySecretEnvFile *dagger.Secret,
-	// Private dotenv text; overrides deploySecretEnvFile values.
-	// +optional
-	deploySecretValues *dagger.Secret,
 	// Required deployment CLI: docker or podman. Supplied by the workflow preset.
 	deployContainerRuntime string,
 	// +default="compose.yml"
@@ -216,7 +193,7 @@ func (m *Daggerer) Deploy(
 		return err
 	}
 	image := registry + "/" + appName + ":" + tag
-	deployEnv, deploySecrets, err := deploymentEnv(ctx, deployEnvFile, deployValues, deploySecretEnvFile, deploySecretValues)
+	deployEnv, err := deploymentEnv(ctx, deployEnvFile, deployValues, deploySecretEnvFile)
 	if err != nil {
 		return err
 	}
@@ -225,27 +202,19 @@ func (m *Daggerer) Deploy(
 		image: image, composeRuntime: deployContainerRuntime, composeFile: composeFile,
 		registry: registryHost(registry), registryUsername: registryUsername,
 		sshKey: sshKey, knownHosts: knownHosts, registryPassword: registryPassword,
-		deployEnv:     deployEnv,
-		deploySecrets: deploySecrets,
+		deployEnv: deployEnv, deploySecretEnvFile: deploySecretEnvFile,
 	})
 }
 
-func deploymentEnv(ctx context.Context, publicFile *dagger.File, publicValues string, privateFile, privateValues *dagger.Secret) ([]dagger.BuildArg, []dagger.BuildArg, error) {
-	public, err := publicEnvArguments(ctx, publicFile, publicValues)
+func deploymentEnv(ctx context.Context, publicFile *dagger.File, publicValues string, privateFile *dagger.Secret) ([]dagger.BuildArg, error) {
+	_, public, err := publicEnvironment(ctx, publicFile, publicValues)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
-	private, err := secretEnvArguments(ctx, privateFile, privateValues)
-	if err != nil {
-		return nil, nil, err
+	if err := validateDeploymentSecrets(ctx, public, privateFile); err != nil {
+		return nil, err
 	}
-	if err := rejectSecretCollisions("deployment", public, private); err != nil {
-		return nil, nil, err
-	}
-	if _, err := deploymentSecretScript(private); err != nil {
-		return nil, nil, err
-	}
-	return public, private, nil
+	return public, nil
 }
 
 func validateDeployRuntime(runtime string) error {
@@ -261,7 +230,7 @@ func registryHost(registry string) string {
 	return host
 }
 
-func publicEnvArguments(ctx context.Context, file *dagger.File, explicit string) ([]dagger.BuildArg, error) {
+func publicEnvironment(ctx context.Context, file *dagger.File, explicit string) (*dagger.EnvFile, []dagger.BuildArg, error) {
 	var sources []*dagger.EnvFile
 	if file != nil {
 		sources = append(sources, file.AsEnvFile())
@@ -269,107 +238,68 @@ func publicEnvArguments(ctx context.Context, file *dagger.File, explicit string)
 	if explicit != "" {
 		sources = append(sources, dag.Directory().WithNewFile("values.env", explicit).File("values.env").AsEnvFile())
 	}
-	var merged []dagger.BuildArg
+	merged, err := mergeEnvFiles(ctx, sources...)
+	if err != nil {
+		return nil, nil, fmt.Errorf("read public environment values: %w", err)
+	}
+	values, err := envFileArguments(ctx, merged)
+	if err != nil {
+		return nil, nil, fmt.Errorf("read public environment values: %w", err)
+	}
+	return merged, values, nil
+}
+
+func mergeEnvFiles(ctx context.Context, sources ...*dagger.EnvFile) (*dagger.EnvFile, error) {
+	merged := dag.EnvFile()
 	for _, source := range sources {
 		variables, err := source.Variables(ctx)
 		if err != nil {
-			return nil, fmt.Errorf("read public environment values: %w", err)
+			return nil, err
 		}
-		values := make([]dagger.BuildArg, 0, len(variables))
-		for _, variable := range variables {
-			name, err := variable.Name(ctx)
+		for i := range variables {
+			name, err := variables[i].Name(ctx)
 			if err != nil {
 				return nil, err
 			}
-			value, err := variable.Value(ctx)
+			value, err := variables[i].Value(ctx)
 			if err != nil {
 				return nil, err
 			}
-			values = append(values, dagger.BuildArg{Name: name, Value: value})
+			merged = merged.WithoutVariable(name).WithVariable(name, value)
 		}
-		merged = mergeEnvironmentValues(merged, values)
 	}
 	return merged, nil
 }
 
-func mergeEnvironmentValues(sources ...[]dagger.BuildArg) []dagger.BuildArg {
-	converted := make([][]envmerge.Variable, 0, len(sources))
-	for _, source := range sources {
-		values := make([]envmerge.Variable, 0, len(source))
-		for _, variable := range source {
-			values = append(values, envmerge.Variable{Name: variable.Name, Value: variable.Value})
-		}
-		converted = append(converted, values)
-	}
-	values := envmerge.Merge(converted...)
-	merged := make([]dagger.BuildArg, 0, len(values))
-	for _, variable := range values {
-		merged = append(merged, dagger.BuildArg{Name: variable.Name, Value: variable.Value})
-	}
-	return merged
-}
-
-func secretEnvArguments(ctx context.Context, file, explicit *dagger.Secret) ([]dagger.BuildArg, error) {
-	var merged []dagger.BuildArg
-	for _, secret := range []*dagger.Secret{file, explicit} {
-		if secret == nil {
-			continue
-		}
-		plaintext, err := secret.Plaintext(ctx)
-		if err != nil {
-			return nil, fmt.Errorf("read private environment input: %w", err)
-		}
-		values, err := parseDotenv(plaintext)
-		if err != nil {
-			// Parser details can contain source text; never include them for private inputs.
-			return nil, fmt.Errorf("parse private environment input: invalid dotenv syntax")
-		}
-		merged = mergeEnvironmentValues(merged, values)
-	}
-	return merged, nil
-}
-
-func parseDotenv(contents string) ([]dagger.BuildArg, error) {
-	values, err := envmerge.Parse(contents)
+func envFileArguments(ctx context.Context, env *dagger.EnvFile) ([]dagger.BuildArg, error) {
+	variables, err := env.Variables(ctx)
 	if err != nil {
 		return nil, err
 	}
-	args := make([]dagger.BuildArg, 0, len(values))
-	for _, variable := range values {
-		args = append(args, dagger.BuildArg{Name: variable.Name, Value: variable.Value})
-	}
-	return args, nil
-}
-
-func rejectSecretCollisions(scope string, public, private []dagger.BuildArg) error {
-	toVariables := func(args []dagger.BuildArg) []envmerge.Variable {
-		values := make([]envmerge.Variable, 0, len(args))
-		for _, variable := range args {
-			values = append(values, envmerge.Variable{Name: variable.Name, Value: variable.Value})
+	values := make([]dagger.BuildArg, 0, len(variables))
+	for i := range variables {
+		name, err := variables[i].Name(ctx)
+		if err != nil {
+			return nil, err
 		}
-		return values
+		if !shellVariableName.MatchString(name) {
+			return nil, fmt.Errorf("public variable %q is not a valid shell variable name", name)
+		}
+		value, err := variables[i].Value(ctx)
+		if err != nil {
+			return nil, err
+		}
+		values = append(values, dagger.BuildArg{Name: name, Value: value})
 	}
-	if name, exists := envmerge.Collision(toVariables(public), toVariables(private)); exists {
-		return fmt.Errorf("%s secret collision for %q: a variable cannot exist in both public and private inputs", scope, name)
-	}
-	return nil
-}
-
-func shellDotenv(values []dagger.BuildArg) (string, error) {
-	converted := make([]envmerge.Variable, 0, len(values))
-	for _, variable := range values {
-		converted = append(converted, envmerge.Variable{Name: variable.Name, Value: variable.Value})
-	}
-	return envmerge.ShellDotenv(converted)
+	return values, nil
 }
 
 type deployComposeParams struct {
 	ctx                                                                             context.Context
 	sshTarget                                                                       string
 	deployDirectory, composeRuntime, composeFile, registry, registryUsername, image string
-	sshKey, knownHosts, registryPassword                                            *dagger.Secret
+	sshKey, knownHosts, registryPassword, deploySecretEnvFile                       *dagger.Secret
 	deployEnv                                                                       []dagger.BuildArg
-	deploySecrets                                                                   []dagger.BuildArg
 }
 
 func (m *Daggerer) deployComposeImage(p deployComposeParams) error {
@@ -381,9 +311,7 @@ func (m *Daggerer) deployComposeImage(p deployComposeParams) error {
 	}
 	compose := []string{p.composeRuntime, "compose", "-f", p.composeFile, "up", "-d", "--force-recreate", "--remove-orphans"}
 	var command string
-	if len(p.deploySecrets) > 0 {
-		// The private export script arrives on stdin; only non-secret Compose arguments
-		// are visible in the remote process command line.
+	if p.deploySecretEnvFile != nil {
 		command = shellCommand(append(publicEnv, append([]string{"sh", "-s", "--"}, compose...)...)...)
 	} else {
 		command = shellCommand(append(publicEnv, compose...)...)
@@ -406,15 +334,6 @@ func (m *Daggerer) deployComposeImage(p deployComposeParams) error {
 		WithMountedSecret(sshKeyMountPath, p.sshKey, dagger.ContainerWithMountedSecretOpts{Mode: 0600}).
 		WithMountedSecret(knownHostsMountPath, p.knownHosts).
 		WithMountedSecret(registryPasswordMountPath, p.registryPassword)
-	var deploySecretPath string
-	if len(p.deploySecrets) > 0 {
-		deploySecretPath = "/run/secrets/deploy_env"
-		script, err := deploymentSecretScript(p.deploySecrets)
-		if err != nil {
-			return err
-		}
-		sshClient = sshClient.WithMountedSecret(deploySecretPath, dag.SetSecret("deploy_env", script))
-	}
 
 	if err := runSSH(p.ctx, sshClient, p.sshTarget,
 		fmt.Sprintf("cd %s && test -f %s", remoteDirectory, shellQuote(p.composeFile))); err != nil {
@@ -430,26 +349,10 @@ func (m *Daggerer) deployComposeImage(p deployComposeParams) error {
 		return fmt.Errorf("image unavailable: %s: %w", p.image, err)
 	}
 
-	composeOpts := []dagger.ContainerWithExecOpts(nil)
-	if deploySecretPath != "" {
-		composeOpts = append(composeOpts, dagger.ContainerWithExecOpts{RedirectStdin: deploySecretPath})
-	}
-	if err := runSSH(p.ctx, sshClient, p.sshTarget, runCompose, composeOpts...); err != nil {
+	if err := runSSHWithDeploymentSecrets(p.ctx, sshClient, p.sshTarget, runCompose, p.deploySecretEnvFile); err != nil {
 		return fmt.Errorf("compose deployment failed: %w", err)
 	}
 	return nil
-}
-
-func deploymentSecretScript(values []dagger.BuildArg) (string, error) {
-	converted := make([]envmerge.Variable, 0, len(values))
-	for _, variable := range values {
-		converted = append(converted, envmerge.Variable{Name: variable.Name, Value: variable.Value})
-	}
-	contents, err := envmerge.ShellExports(converted)
-	if err != nil {
-		return "", err
-	}
-	return contents + "exec \"$@\"\n", nil
 }
 
 func runSSH(ctx context.Context, client *dagger.Container, target, command string, opts ...dagger.ContainerWithExecOpts) error {

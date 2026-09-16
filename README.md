@@ -233,12 +233,12 @@ COPY go.mod go.sum ./
 ARG GOPRIVATE=github.com/your-org/*
 ENV GOPRIVATE=$GOPRIVATE
 
-# Daggerer supplies the merged private build values through this temporary mount.
-# Reads GITHUB_PAT for private dependency downloads.
+# with-build-secret maps the caller's file to this BuildKit secret ID.
+# The secret mount is available only to this RUN instruction.
 # The secret mount is not copied into the image.
-RUN --mount=type=secret,id=build_env,required=true \
+RUN --mount=type=secret,id=github_pat,required=true \
     set -eu; \
-    . /run/secrets/build_env; \
+    GITHUB_PAT="$(cat /run/secrets/github_pat)"; \
     GIT_CONFIG_COUNT=1 \
     GIT_CONFIG_KEY_0="url.https://x-access-token:${GITHUB_PAT}@github.com/.insteadOf" \
     GIT_CONFIG_VALUE_0="https://github.com/" \
@@ -267,27 +267,31 @@ APP_PACKAGE=.
 APP_MODE=PRODUCTION
 ```
 
-```dotenv
-# $HOME/secrets/my-app/secretbuild.env on the runner VPS; shared by both builds.
-# --build-secret-env-file parses this private dotenv and mounts the merged result at
-# /run/secrets/build_env during the build. It never becomes a Docker build argument.
-# Example PAT with read access to our private dependency repository; not a runtime token.
-GITHUB_PAT=example-token
+```text
+# $HOME/secrets/my-app/github_pat on the runner VPS; shared by both builds.
+# The file contains only the PAT value, with read access to our private dependency repository.
+example-token
 ```
 
 ```dotenv
-# $HOME/secrets/my-app/secretdeploy.env on the runner VPS.
-# Shared private runtime value for both environments. Daggerer forwards it to the
-# remote Compose process over SSH without writing a file on the deployment target.
+# $HOME/secrets/my-app/staging.env on the runner VPS.
 DATABASE_URL=postgres://app:example-password@db.internal:5432/my_app
+STAGING_SECRET_KEY=example-staging-key
+```
+
+```dotenv
+# $HOME/secrets/my-app/production.env on the runner VPS.
+DATABASE_URL=postgres://app:example-password@db.internal:5432/my_app
+PROD_SECRET_TOKEN=example-production-token
 ```
 
 ```dockerignore
 # .dockerignore in our application's checkout: exclude metadata and local secrets.
 .git
 .env
-secretbuild.env
-secretdeploy.env
+github_pat
+staging.env
+production.env
 secrets/
 # build.env remains available as public build configuration.
 ```
@@ -309,8 +313,9 @@ For our application, the runner VPS also serves as the staging `ssh` target. Thi
 ├── secrets/
 │   └── my-app/
 │       ├── registry_password
-│       ├── secretbuild.env   # Shared private build file containing GITHUB_PAT
-│       ├── secretdeploy.env  # Shared private runtime DATABASE_URL
+│       ├── github_pat        # Raw PAT value used as BuildKit secret ID github_pat
+│       ├── staging.env      # DATABASE_URL and STAGING_SECRET_KEY
+│       ├── production.env   # DATABASE_URL and PROD_SECRET_TOKEN
 │       ├── staging_ssh_key
 │       ├── staging_known_hosts
 │       ├── production_ssh_key
@@ -364,11 +369,14 @@ jobs:
           # Use the full commit hash here as well as in --tag; neither input sets the other.
           DEPLOY_VALUES: |
             APP_IMAGE=registry.example.com/team/${{ env.APPLICATION_NAME }}:${{ github.sha }}
-          # Private dotenv text from a GitHub Secret containing STAGING_SECRET_KEY=...
-          # Our STAGING application logic requires this key; production uses another key.
-          DEPLOY_SECRET_VALUES: ${{ secrets.STAGING_DEPLOY_ENV }}
         run: |
-          dagger -W github.com/ninesl/daggerer@master api call release
+          # WARN: Dagger beta.13 requires Daggerer to read this value briefly to assign
+          # the BuildKit ID. Restrict who can modify or invoke this module.
+          # This is one chained Dagger call; release consumes the configured secret.
+          dagger -W github.com/ninesl/daggerer@master api call with-build-secret \
+            --id=github_pat \
+            --secret="file://$HOME/secrets/$APPLICATION_NAME/github_pat" \
+            release \
             # Supply the step's current directory as the Docker build context.
             # Here it contains the branch commit's files placed by actions/checkout.
             --source=.
@@ -382,9 +390,6 @@ jobs:
 
             # APP_MODE=STAGING overrides build.env's APP_MODE=PRODUCTION.
             --build-values="$BUILD_VALUES"
-
-            # Shared private build dotenv containing GITHUB_PAT.
-            --build-secret-env-file="file://$HOME/secrets/$APPLICATION_NAME/secretbuild.env"
 
             # Publish and pull from this registry and namespace.
             --registry=registry.example.com/team
@@ -431,12 +436,8 @@ jobs:
             # Overrides matching deploy.env entries; no application variable names are automatic.
             --deploy-values="$DEPLOY_VALUES"
 
-            # Shared private runtime dotenv containing DATABASE_URL.
-            --deploy-secret-env-file="file://$HOME/secrets/$APPLICATION_NAME/secretdeploy.env"
-
-            # Add STAGING_SECRET_KEY from the workflow's protected environment.
-            # env:// keeps the multiline dotenv input typed as a Dagger Secret.
-            --deploy-secret-values=env://DEPLOY_SECRET_VALUES
+            # Private runtime dotenv containing DATABASE_URL and STAGING_SECRET_KEY.
+            --deploy-secret-env-file="file://$HOME/secrets/$APPLICATION_NAME/staging.env"
 
 ```
 
@@ -445,14 +446,12 @@ Defaults and omissions:
 - `--dockerfile`: uses `Dockerfile` instead of `myapp.Dockerfile`.
 - `--build-env-file`: no public build file is read; explicit build values still apply.
 - `--build-values`: no overrides; the public build file's values still apply.
-- `--build-secret-env-file`: no private build base is read; our Dockerfile requires `GITHUB_PAT`.
-- Omitted `--build-secret-values`: no private build overrides are merged; the PAT file still applies.
+- Omitted `with-build-secret`: no BuildKit secrets are configured; our Dockerfile requires `github_pat`.
 - `--tag`: uses `latest` instead of the commit hash.
 - `--compose-file`: uses `compose.yml` instead of `dev.compose.yml`.
 - `--deploy-env-file`: no public deployment file is read; explicit deployment values still apply.
 - `--deploy-values`: no overrides; the deployment file's values still apply. Our example would need another source for `APP_IMAGE`.
 - `--deploy-secret-env-file`: no private deployment base is read, so `DATABASE_URL` would be absent.
-- `--deploy-secret-values`: no private deployment overrides are merged, so `STAGING_SECRET_KEY` would be absent.
 
 Daggerer does not auto-discover any of these inputs. `dev.compose.yml` explicitly chooses which forwarded values enter the running application.
 
@@ -478,7 +477,7 @@ services:
 
 The production workflow executes on the runner VPS to build and publish, then connects to the production `ssh` target on the production VPS, where Docker runs the application.
 
-Both workflows run on the runner VPS and share its registry password, private build file, and private `DATABASE_URL` file. Their `ssh` targets have separate SSH credentials, and each workflow supplies its own private runtime dotenv override. Those choices are explicit inputs to our application's workflows.
+Both workflows run on the runner VPS and share its registry password and raw PAT file. Their `ssh` targets have separate SSH credentials, and each workflow supplies one environment-specific private deployment dotenv file. Those choices are explicit inputs to our application's workflows.
 
 ```yaml
 # my-repo/.github/workflows/production.yml
@@ -513,11 +512,14 @@ jobs:
           # Setting --tag does not create or change this variable.
           DEPLOY_VALUES: |
             APP_IMAGE=registry.example.com/team/${{ env.APPLICATION_NAME }}:latest
-          # Private dotenv text from a GitHub Secret containing PROD_SECRET_TOKEN=...
-          # Our PRODUCTION application logic requires this token; staging uses another key.
-          DEPLOY_SECRET_VALUES: ${{ secrets.PRODUCTION_DEPLOY_ENV }}
         run: |
-          dagger -W github.com/ninesl/daggerer@master api call release
+          # WARN: Dagger beta.13 requires Daggerer to read this value briefly to assign
+          # the BuildKit ID. Restrict who can modify or invoke this module.
+          # This is one chained Dagger call; release consumes the configured secret.
+          dagger -W github.com/ninesl/daggerer@master api call with-build-secret \
+            --id=github_pat \
+            --secret="file://$HOME/secrets/$APPLICATION_NAME/github_pat" \
+            release \
             # Supply the step's current directory as the Docker build context.
             # Here it contains the main/master commit's files placed by actions/checkout.
             --source=.
@@ -528,9 +530,6 @@ jobs:
 
             # Public build values, including APP_MODE=PRODUCTION; no override is passed.
             --build-env-file=build.env
-
-            # The same private build dotenv used by staging, containing GITHUB_PAT.
-            --build-secret-env-file="file://$HOME/secrets/$APPLICATION_NAME/secretbuild.env"
 
             # Same registry and namespace used by staging.
             --registry=registry.example.com/team
@@ -576,11 +575,8 @@ jobs:
             # Overrides matching deploy.env entries; no application variable names are automatic.
             --deploy-values="$DEPLOY_VALUES"
 
-            # Shared private runtime dotenv containing DATABASE_URL.
-            --deploy-secret-env-file="file://$HOME/secrets/$APPLICATION_NAME/secretdeploy.env"
-
-            # Add PROD_SECRET_TOKEN from the workflow's protected environment.
-            --deploy-secret-values=env://DEPLOY_SECRET_VALUES
+            # Private runtime dotenv containing DATABASE_URL and PROD_SECRET_TOKEN.
+            --deploy-secret-env-file="file://$HOME/secrets/$APPLICATION_NAME/production.env"
 
 ```
 
@@ -589,14 +585,12 @@ Defaults and omissions:
 - `--dockerfile`: if omitted, uses `Dockerfile` instead of `myapp.Dockerfile`.
 - `--build-env-file`: if omitted, no public build file is read.
 - Omitted `--build-values`: no overrides; production keeps `APP_MODE=PRODUCTION` from `build.env`.
-- `--build-secret-env-file`: if omitted, no private build base is read; our Dockerfile requires `GITHUB_PAT`.
-- Omitted `--build-secret-values`: no private build overrides are merged; the PAT file still applies.
+- Omitted `with-build-secret`: no BuildKit secrets are configured; our Dockerfile requires `github_pat`.
 - `--tag`: if omitted, uses `latest`, the same tag selected here.
 - `--compose-file`: uses `compose.yml` instead of `prod.compose.yml`.
 - `--deploy-env-file`: no public deployment file is read; explicit deployment values still apply.
 - `--deploy-values`: no overrides; the deployment file's values still apply. Our example would need another source for `APP_IMAGE`.
 - `--deploy-secret-env-file`: no private deployment base is read, so `DATABASE_URL` would be absent.
-- `--deploy-secret-values`: no private deployment overrides are merged, so `PROD_SECRET_TOKEN` would be absent.
 
 Daggerer does not auto-discover any of these inputs. `prod.compose.yml` explicitly chooses which forwarded values enter the running application.
 
@@ -634,58 +628,70 @@ Daggerer does not automatically read your workspace's `.env`, import the runner'
 
 - `--build-env-file`: a caller-selected public dotenv file; this can be your workspace's `.env` if its contents are suitable for public build arguments.
 - `--build-values`: public dotenv text, supplied directly or through a runner environment variable such as `BUILD_VALUES`.
-- `--build-secret-env-file`: a caller-selected private dotenv Secret used as the private build base.
-- `--build-secret-values`: private dotenv Secret text that overrides the private build base.
+- `with-build-secret --id --secret`: adds one raw caller-local file as a named BuildKit secret for the subsequent chained build, build-only, or release call.
 - `--deploy-env-file`: a caller-selected public dotenv file for the remote Compose process.
 - `--deploy-values`: public dotenv text, supplied directly or through a runner environment variable such as `DEPLOY_VALUES`.
-- `--deploy-secret-env-file`: a caller-selected private dotenv Secret used as the private deployment base.
-- `--deploy-secret-values`: private dotenv Secret text that overrides the private deployment base.
+- `--deploy-secret-env-file`: one caller-selected private dotenv file mounted for the remote Compose process; it must use `file://`.
 
-The workflow's `BUILD_VALUES`, `DEPLOY_VALUES`, and `DEPLOY_SECRET_VALUES` are ordinary runner environment variables containing multiline dotenv text—like in-memory files. Their names are our workflow's choice. Daggerer receives them only through an explicit API argument. Defining one under GitHub's `env:` does not automatically inject it into an image or running container.
+The workflow's `BUILD_VALUES` and `DEPLOY_VALUES` are ordinary runner environment variables containing public multiline dotenv text. Private dotenv inputs must name actual caller-local files through `file://`; Daggerer mounts deployment files internally as `.env` files without exposing their contents through the API.
 
 ### Merge And Collision Rules
 
-Build and deployment each have an independent public merge and private merge:
+Build and deployment public values follow the same merge:
 
 1. Read the selected base dotenv input, if supplied.
 2. Read the explicit dotenv input, if supplied.
 3. Merge by variable name; explicit input wins, including an explicitly empty value.
 4. Keep base-only keys. With neither input supplied, that category is empty.
-5. Reject any variable name present in both the merged public and merged private categories.
+5. For deployment, reject any public variable name also present in the private deployment file.
 
-Public files and text use Dagger's dotenv parser. Private inputs use the same dotenv syntax but are parsed on the private path because Dagger's `EnvFile` API accepts a public `File`, not a `Secret`. Table-driven tests cover dotenv syntax, base/override permutations, explicit empty overrides, and same-value or different-value public/private collisions.
+Public inputs use Dagger's `EnvFile` parser and merge operations. Deployment collision preflight mounts the original private Secret in an isolated container and compares only variable names; its values never return through the Dagger API. The private deployment file accepts blank lines, comments, and one-line `NAME=literal value` assignments. Quotes and dollar signs are literal rather than shell syntax.
 
-A collision fails before the build or deployment operation and names only the conflicting variable. Daggerer never compares or prints the values in the error. Private values do not silently overwrite public values because that could accidentally downgrade a secret into a public build argument or command value.
+A deployment collision fails before remote operations and names only the conflicting variable. Daggerer never compares or prints values in the error. Build secrets are independent BuildKit IDs rather than environment names, so no build public/private collision comparison is performed.
 
 In our examples:
 
 - **Staging build:** `build.env` supplies `APP_MODE=PRODUCTION`; `BUILD_VALUES` overrides it with `APP_MODE=STAGING`.
 - **Production build:** no public override is passed, so `APP_MODE=PRODUCTION` remains.
-- **Both builds:** `secretbuild.env` supplies the private `GITHUB_PAT`; no private build override is needed.
-- **Both deployments:** `deploy.env` supplies the public `COMPOSE_PARALLEL_LIMIT`; `DEPLOY_VALUES` adds the public `APP_IMAGE`; `secretdeploy.env` supplies the private `DATABASE_URL`.
-- **Staging deployment:** private inline values add `STAGING_SECRET_KEY`.
-- **Production deployment:** private inline values add `PROD_SECRET_TOKEN`.
+- **Both builds:** `with-build-secret` maps the raw `github_pat` file to BuildKit ID `github_pat`.
+- **Both deployments:** `deploy.env` supplies public `COMPOSE_PARALLEL_LIMIT`; `DEPLOY_VALUES` adds public `APP_IMAGE`.
+- **Staging deployment:** `staging.env` supplies private `DATABASE_URL` and `STAGING_SECRET_KEY`.
+- **Production deployment:** `production.env` supplies private `DATABASE_URL` and `PROD_SECRET_TOKEN`.
 
 Our Dockerfile explicitly turns `APP_MODE` into image environment configuration with `ENV APP_MODE=$APP_MODE`. Our application uses that mode to require `STAGING_SECRET_KEY` or `PROD_SECRET_TOKEN`. These names and that business logic belong to the sample application; Daggerer treats every variable generically.
 
 ### Secret Sources And Mounts
 
-- `file://`: Dagger loads a Secret from a caller-local file.
-- `env://`: Dagger loads a Secret from a caller environment variable, including one populated from GitHub Actions Secrets.
+- `file://`: Dagger loads a Secret from a caller-local file. Build secrets and the private deployment dotenv require this source.
+- `env://`: Dagger loads a Secret from a caller environment variable. It remains valid for registry passwords, SSH keys, and known-hosts inputs, but not private dotenv inputs.
 
-These are interchangeable sources for any Secret parameter. They do not change merge precedence or turn the input into a public value. Putting a GitHub secret into a public values argument bypasses that separation; use a Secret parameter for private contents.
+The source restriction ensures private inputs come from explicit caller-local files. Putting a GitHub secret into a public values argument bypasses that separation; provision private files on the runner and pass their actual filenames with `file://`.
 
 Private values stay on phase-specific paths:
 
-- **Build secrets:** Daggerer merges the private build inputs and creates one BuildKit Secret. Our Dockerfile temporarily mounts it at `/run/secrets/build_env` during `go mod download`. It is never passed as a Docker build argument.
-- **Deployment secrets:** Daggerer merges the private deployment inputs and streams a quoted export script over SSH stdin for the selected Compose invocation. Secret values are not command-line arguments, and Daggerer does not write a dotenv file in the workspace or on the target.
+- **Build secrets:** each chained `with-build-secret` maps one raw file to the Dockerfile ID used by `RUN --mount=type=secret,id=...`. Daggerer follows Dagger's documented [`Plaintext()` then `SetSecret()` workaround for Dockerfile builds](https://docs.dagger.io/0.21/cookbook/#use-secret-in-dockerfile-build). **WARN:** this older workaround is likely to be deprecated or removed once DockerBuild accepts native `{id, secret}` inputs. The value exists briefly in module memory and must never be logged, parsed, written, or included in an error. Restrict who can modify or invoke Daggerer. The replacement API is tracked by [dagger/dagger#7358](https://github.com/dagger/dagger/issues/7358), [dagger/dagger#9437](https://github.com/dagger/dagger/issues/9437), and the related [PR #8058](https://github.com/dagger/dagger/pull/8058).
+
+Repeat `with-build-secret` once for every Dockerfile secret ID before the terminal operation:
+
+```text
+dagger -W github.com/ninesl/daggerer@master api call with-build-secret \
+  --id=github_pat \
+  --secret=file://$HOME/secrets/my-app/github_pat \
+  with-build-secret \
+  --id=npm_token \
+  --secret=file://$HOME/secrets/my-app/npm_token \
+  release ...
+```
+
+Using `Directory.DockerBuild` is an intentional compatibility mode. Keeping build logic in a Dockerfile gives up some of Dagger's native programmability, composition, and direct `WithMountedSecret` handling. Daggerer accepts that tradeoff so existing Dockerfiles can still gain useful parts of the Dagger Engine: portable execution, graph caching, observability, registry publishing, and integration with the rest of the release pipeline. Native Dagger container builds should use `WithMountedSecret` directly and do not need the Dockerfile workaround above.
+- **Deployment secrets:** Daggerer mounts the original private Secret for validation and final Compose SSH execution. The resulting exports stream directly over SSH stdin. Values never return through the Dagger API, are not command-line arguments, and are not written to the workspace or target.
 - **Deployment credentials:** registry passwords and SSH credentials are used by authentication helpers. They are not application build arguments or public deployment values.
 
 Daggerer does not materialize Secrets into your checkout's `.env`. Its build-secret mount is not automatically saved into an image layer, and deployment secrets never enter the image build. The sample Compose files deliberately place selected deployment secrets into the running container environment. Users with sufficient container-runtime access can inspect runtime environment variables, and application or Dockerfile logic can disclose values; Daggerer cannot guarantee what arbitrary application, Compose, or Dockerfile instructions do with an input.
 
 ### Target-Side Runtime Files
 
-Compose has its own environment handling. Daggerer supplies the merged deployment values to the remote Compose process; each Compose file explicitly chooses which values become runtime application environment variables. The values are available for that deployment command and the resulting container configuration without Daggerer writing a remote dotenv file.
+Compose has its own environment handling. Daggerer supplies public and private values only to the remote Compose process; each Compose file explicitly chooses which values become runtime application environment variables. The values are available for that deployment command and the resulting container configuration without Daggerer writing a remote dotenv file.
 
 Selecting a dotenv file as an API input does not control whether files already inside the build context are copied by your Dockerfile. Keep secret files outside the checkout where practical and exclude local secret files with `.dockerignore` independently.
 
@@ -699,14 +705,19 @@ The same inputs also work with `build-only`, without publishing or deploying:
 - name: Build our sample application
   env:
     # Hardcoded public overrides for our application's staging build.
-    # Keep credentials in the private build file, never in these public values.
+    # Keep credentials in with-build-secret files, never in these public values.
     # GitHub Actions uses env:, not env_file:; --build-values passes these explicitly.
     BUILD_VALUES: |
       APP_MODE=STAGING
       APP_PACKAGE=.
   # build-only has no deployment or registry inputs because it only builds the image.
   run: |
-    dagger -W github.com/ninesl/daggerer@master api call build-only
+    # WARN: this beta.13 DockerBuild workaround briefly reads the PAT in module memory.
+    # This is one chained Dagger call; build-only consumes the configured secret.
+    dagger -W github.com/ninesl/daggerer@master api call with-build-secret \
+      --id=github_pat \
+      --secret=file://$HOME/secrets/my-app/github_pat \
+      build-only \
       # Supply the step's current directory as the Docker build context.
       # This example assumes actions/checkout has placed our application's files there.
       --source=.
@@ -720,9 +731,6 @@ The same inputs also work with `build-only`, without publishing or deploying:
       # Explicit public overrides; APP_MODE overrides build.env's PRODUCTION.
       --build-values="$BUILD_VALUES"
 
-      # Our private build file containing GITHUB_PAT; its filename and path are our choice.
-      --build-secret-env-file=file://$HOME/secrets/my-app/secretbuild.env
-
 ```
 
 Defaults and omissions:
@@ -730,8 +738,7 @@ Defaults and omissions:
 - `--dockerfile`: uses `Dockerfile` instead of `myapp.Dockerfile`.
 - `--build-env-file`: no public build file is read; explicit build values still apply.
 - `--build-values`: no overrides; the public build file's values still apply.
-- `--build-secret-env-file`: no private build base is read; our Dockerfile requires `GITHUB_PAT`.
-- Omitted `--build-secret-values`: no private build overrides are merged.
+- Omitted `with-build-secret`: no BuildKit secrets are configured; our Dockerfile requires `github_pat`.
 
 ## GitHub Actions Secrets As Environment Inputs
 
@@ -749,15 +756,8 @@ Alternative credential inputs for our release workflows:
     SSH_KEY: ${{ secrets.STAGING_SSH_KEY }}
     # Verified host key for the staging `ssh` target; production selects its own value.
     KNOWN_HOSTS: ${{ secrets.STAGING_KNOWN_HOSTS }}
-    # Entire private build dotenv, including GITHUB_PAT, configured in GitHub.
-    BUILD_PRIVATE_ENV: ${{ secrets.BUILD_PRIVATE_ENV }}
-    # Entire shared private deployment dotenv, including DATABASE_URL.
-    DEPLOY_PRIVATE_ENV: ${{ secrets.DEPLOY_PRIVATE_ENV }}
   run: |
     dagger -W github.com/ninesl/daggerer@master api call release
-      # Use the GitHub Secret as the private build base instead of file://.
-      --build-secret-env-file=env://BUILD_PRIVATE_ENV
-
       # Load the registry password from the step environment as a Dagger Secret.
       --registry-password=env://REGISTRY_PASSWORD
 
@@ -767,12 +767,9 @@ Alternative credential inputs for our release workflows:
       # Strict host-key verification for the staging `ssh` target.
       --known-hosts=env://KNOWN_HOSTS
 
-      # Use the GitHub Secret as the private deployment base instead of file://.
-      --deploy-secret-env-file=env://DEPLOY_PRIVATE_ENV
-
 ```
 
-Arguments absent from this credential excerpt remain as shown in the full staging or production workflow; their defaults and optional-input behavior are described below those workflows.
+Dotenv Secret arguments are intentionally absent from this credential excerpt: they require actual `file://` inputs as shown in the full workflows. Other credentials may still use `env://`. Arguments absent here retain the values shown in the full staging or production workflow.
 
 ## How Deployment Works
 
