@@ -6,12 +6,17 @@ import (
 	"fmt"
 	"sort"
 	"strings"
-	"time"
 
 	"dagger/daggerer/internal/dagger"
 )
 
 type Daggerer struct{}
+
+const (
+	sshKeyMountPath           = "/run/secrets/ssh_key"
+	knownHostsMountPath       = "/run/secrets/known_hosts"
+	registryPasswordMountPath = "/run/secrets/registry_password"
+)
 
 // Build a container without publishing it.
 func (m *Daggerer) BuildOnly(
@@ -21,18 +26,12 @@ func (m *Daggerer) BuildOnly(
 	// Public .env file, parsed by Dagger. Never supply credentials here.
 	// +optional
 	buildEnvFile *dagger.File,
-	// Public values constructed with EnvFile.WithVariable; override file values.
+	// Public dotenv text, parsed by Dagger; overrides buildEnvFile values. Never supply credentials here.
 	// +optional
-	buildValues *dagger.EnvFile,
+	buildValues string,
 	// Private .env mounted intact as the BuildKit secret build_env.
 	// +optional
 	buildSecretEnv *dagger.Secret,
-	// BuildKit secret IDs, paired by position with buildSecrets.
-	// +optional
-	buildSecretIDs []string,
-	// Secret values, paired by position with buildSecretIDs.
-	// +optional
-	buildSecrets []*dagger.Secret,
 	// Dockerfile path relative to the build context.
 	// +default="Dockerfile"
 	dockerfile string,
@@ -40,38 +39,17 @@ func (m *Daggerer) BuildOnly(
 	opts := dagger.DirectoryDockerBuildOpts{
 		Dockerfile: dockerfile,
 	}
-	args, err := buildArguments(ctx, buildEnvFile, buildValues)
+	args, err := envArguments(ctx, buildEnvFile, buildValues)
 	if err != nil {
 		return nil, err
 	}
 	opts.BuildArgs = args
-	if len(buildSecretIDs) != len(buildSecrets) {
-		return nil, fmt.Errorf("build-secret-ids and build-secrets must have equal lengths")
-	}
-	seen := map[string]bool{}
 	if buildSecretEnv != nil {
-		seen["build_env"] = true
 		secret, err := namedBuildSecret(ctx, "build_env", buildSecretEnv)
 		if err != nil {
 			return nil, err
 		}
-		opts.Secrets = append(opts.Secrets, secret)
-	}
-	for i, id := range buildSecretIDs {
-
-		// TODO: we probably have a better way to validate this
-		if id == "" || strings.ContainsAny(id, "/\\\x00\r\n") || id == "." || id == ".." || seen[id] {
-			return nil, fmt.Errorf("invalid or duplicate build secret ID %q", id)
-		}
-		seen[id] = true
-		if buildSecrets[i] == nil {
-			return nil, fmt.Errorf("missing build secret %q", id)
-		}
-		secret, err := namedBuildSecret(ctx, id, buildSecrets[i])
-		if err != nil {
-			return nil, err
-		}
-		opts.Secrets = append(opts.Secrets, secret)
+		opts.Secrets = []*dagger.Secret{secret}
 	}
 	return source.DockerBuild(opts), nil
 }
@@ -96,28 +74,24 @@ func (m *Daggerer) Build(
 	// Public .env file, parsed by Dagger. Never supply credentials here.
 	// +optional
 	buildEnvFile *dagger.File,
-	// Public values constructed with EnvFile.WithVariable; overrides .env file values.
+	// Public dotenv text, parsed by Dagger; overrides buildEnvFile values. Never supply credentials here.
 	// +optional
-	buildValues *dagger.EnvFile,
+	buildValues string,
 	// Private .env mounted intact as the BuildKit secret build_env.
 	// +optional
 	buildSecretEnv *dagger.Secret,
-	// BuildKit secret IDs, paired by position with buildSecrets.
-	// +optional
-	buildSecretIDs []string,
-	// Secret values, paired by position with buildSecretIDs.
-	// +optional
-	buildSecrets []*dagger.Secret,
 ) (string, error) {
-	// TODO: we need a way to determine if the registry auth is valid before we build, this is wasting work otherwise?
+	if err := m.checkRegistryAccess(ctx, registryHost(registry), registryUsername, registryPassword); err != nil {
+		return "", err
+	}
 
-	container, err := m.BuildOnly(ctx, source, buildEnvFile, buildValues, buildSecretEnv, buildSecretIDs, buildSecrets, dockerfile)
+	container, err := m.BuildOnly(ctx, source, buildEnvFile, buildValues, buildSecretEnv, dockerfile)
 	if err != nil {
 		return "", err
 	}
 	image := registry + "/" + appName + ":" + tag
 	published, err := container.
-		WithRegistryAuth(registry, registryUsername, registryPassword).
+		WithRegistryAuth(registryHost(registry), registryUsername, registryPassword).
 		Publish(ctx, image)
 	if err != nil {
 		return "", fmt.Errorf("publish %s: %w", image, err)
@@ -143,43 +117,39 @@ func (m *Daggerer) Release(
 	knownHosts *dagger.Secret,
 	// Remote directory relative to the SSH user's home
 	deployDirectory string,
+	// Public dotenv file on the caller, forwarded to the remote Compose process. Never supply credentials here.
+	// +optional
+	deployEnvFile *dagger.File,
+	// Public dotenv text; overrides deployEnvFile values. No application variable names are implied.
+	// +optional
+	deployValues string,
 	// Compose file name that is in the deploy directory.
 	// +default="compose.yml"
 	composeFile string,
 	// docker or podman. Is used on the VPS that has your `compose.yml`
 	deployContainerRuntime string,
-	// Container image used for the SSH client.
-	// +default=
-	sshImage string,
 	registryUsername string,
 	registryPassword *dagger.Secret,
-	// Registry password mount path inside helper containers.
 	// Public .env file, parsed by Dagger. You really shouldn't supply credentials here.
 	// +optional
 	buildEnvFile *dagger.File,
-	// Public values constructed with EnvFile.WithVariable; collisions override file values.
+	// Public dotenv text, parsed by Dagger; overrides buildEnvFile values. Never supply credentials here.
 	// +optional
-	buildValues *dagger.EnvFile,
+	buildValues string,
 	// Private .env mounted intact as the BuildKit secret build_env.
 	// +optional
 	buildSecretEnv *dagger.Secret,
-	// BuildKit secret IDs, paired by position with buildSecrets.
-	// +optional
-	buildSecretIDs []string,
-	// Secret values, paired by position with buildSecretIDs.
-	// +optional
-	buildSecrets []*dagger.Secret,
 	// +default="Dockerfile"
 	dockerfile string,
 ) error {
 	if err := validateDeployRuntime(deployContainerRuntime); err != nil {
 		return err
 	}
-	_, err := m.Build(ctx, source, registry, appName, tag, registryUsername, registryPassword, buildEnvFile, buildValues, buildSecretEnv, buildSecretIDs, buildSecrets, dockerfile)
+	_, err := m.Build(ctx, source, registry, appName, tag, registryUsername, registryPassword, dockerfile, buildEnvFile, buildValues, buildSecretEnv)
 	if err != nil {
 		return err
 	}
-	return m.Deploy(ctx, registry, appName, tag, sshTarget, sshKey, knownHosts, deployDirectory, deployContainerRuntime, composeFile, sshImage, registryUsername, registryPassword)
+	return m.Deploy(ctx, registry, appName, tag, sshTarget, sshKey, knownHosts, deployDirectory, deployEnvFile, deployValues, deployContainerRuntime, composeFile, registryUsername, registryPassword)
 }
 
 // Deploy an existing image with Compose.
@@ -198,21 +168,47 @@ func (m *Daggerer) Deploy(
 	knownHosts *dagger.Secret,
 	// Remote directory relative to the SSH user's home.
 	deployDirectory string,
+	// Public dotenv file on the caller, forwarded to the remote Compose process. Never supply credentials here.
+	// +optional
+	deployEnvFile *dagger.File,
+	// Public dotenv text; overrides deployEnvFile values. No application variable names are implied.
+	// +optional
+	deployValues string,
 	// Required deployment CLI: docker or podman. Supplied by the workflow preset.
 	deployContainerRuntime string,
 	// +default="compose.yml"
 	composeFile string,
-	// Container image used for the SSH client.
-	// +default="alpine:3.24.1"
-	sshImage string,
 	registryUsername string,
 	registryPassword *dagger.Secret,
 ) error {
-	if deployContainerRuntime != "docker" && deployContainerRuntime != "podman" {
-		return fmt.Errorf("deploy-container-runtime must be docker or podman, got %q", deployContainerRuntime)
+	if err := validateDeployRuntime(deployContainerRuntime); err != nil {
+		return err
 	}
 	image := registry + "/" + appName + ":" + tag
-	return m.deployComposeImage(ctx, sshTarget, deployDirectory, image, deployContainerRuntime, composeFile, sshImage, registry, registryUsername, sshKey, knownHosts, registryPassword)
+	deployEnv, err := envArguments(ctx, deployEnvFile, deployValues)
+	if err != nil {
+		return err
+	}
+	return m.deployComposeImage(deployComposeParams{
+		ctx: ctx, sshTarget: sshTarget, deployDirectory: deployDirectory,
+		image: image, composeRuntime: deployContainerRuntime, composeFile: composeFile,
+		registry: registryHost(registry), registryUsername: registryUsername,
+		sshKey: sshKey, knownHosts: knownHosts, registryPassword: registryPassword,
+		deployEnv: deployEnv,
+	})
+}
+
+func validateDeployRuntime(runtime string) error {
+	if runtime != "docker" && runtime != "podman" {
+		return fmt.Errorf("deploy-container-runtime must be docker or podman, got %q", runtime)
+	}
+	return nil
+}
+
+// Authentication uses the host; image references retain the namespace.
+func registryHost(registry string) string {
+	host, _, _ := strings.Cut(registry, "/")
+	return host
 }
 
 func namedBuildSecret(ctx context.Context, name string, secret *dagger.Secret) (*dagger.Secret, error) {
@@ -223,19 +219,19 @@ func namedBuildSecret(ctx context.Context, name string, secret *dagger.Secret) (
 	return dag.SetSecret(name, plaintext), nil
 }
 
-func buildArguments(ctx context.Context, file *dagger.File, explicit *dagger.EnvFile) ([]dagger.BuildArg, error) {
+func envArguments(ctx context.Context, file *dagger.File, explicit string) ([]dagger.BuildArg, error) {
 	var sources []*dagger.EnvFile
 	if file != nil {
 		sources = append(sources, file.AsEnvFile())
 	}
-	if explicit != nil {
-		sources = append(sources, explicit)
+	if explicit != "" {
+		sources = append(sources, dag.Directory().WithNewFile("values.env", explicit).File("values.env").AsEnvFile())
 	}
 	values := map[string]string{}
 	for _, source := range sources {
 		variables, err := source.Variables(ctx)
 		if err != nil {
-			return nil, fmt.Errorf("read public build values: %w", err)
+			return nil, fmt.Errorf("read public environment values: %w", err)
 		}
 		for _, variable := range variables {
 			name, err := variable.Name(ctx)
@@ -267,17 +263,21 @@ type deployComposeParams struct {
 	sshTarget                                                                       string
 	deployDirectory, composeRuntime, composeFile, registry, registryUsername, image string
 	sshKey, knownHosts, registryPassword                                            *dagger.Secret
+	deployEnv                                                                       []dagger.BuildArg
 }
 
 func (m *Daggerer) deployComposeImage(p deployComposeParams) error {
 	remoteDirectory := `"$HOME"/` + shellQuote(p.deployDirectory)
-	// FIXME: we need to use the .env for this? what about the key value secrets etc, etc??
-	// APP_IMAGE is not forced behavior, we just set it bc we have that key_value pair set in the release env variables...
+	// Forward only caller-supplied values; the application's Compose file defines their meaning.
+	command := []string{"env", "--"}
+	for _, variable := range p.deployEnv {
+		command = append(command, variable.Name+"="+variable.Value)
+	}
+	command = append(command, p.composeRuntime, "compose", "-f", p.composeFile, "up", "-d", "--force-recreate", "--remove-orphans")
 	runCompose := fmt.Sprintf(
-		"cd %s && APP_IMAGE=%s %s",
-		p.remoteDirectory,
-		shellQuote(p.image),
-		shellCommand(p.composeRuntime, "compose", "-f", p.composeFile, "up", "-d", "--force-recreate", "--remove-orphans"),
+		"cd %s && %s",
+		remoteDirectory,
+		shellCommand(command...),
 	)
 
 	sshClient, err := dag.Container().From("alpine:3.24.1").
@@ -288,34 +288,33 @@ func (m *Daggerer) deployComposeImage(p deployComposeParams) error {
 	}
 
 	// SSH must connect again: cached success cannot revalidate authorization.
-	sshClient.WithEnvVariable("DAGGERER_EXEC_NONCE", time.Now().String()).
-		WithSecretVariable("SSH_KEY", p.sshKey).
-		WithSecretVariable("KNOWN_HOSTS", p.knownHosts).
-		WithSecretVariable("REGISTRY_PASSWORD", p.registryPassword)
+	sshClient = sshClient.WithEnvVariable("DAGGERER_EXEC_NONCE", rand.Text()).
+		WithMountedSecret(sshKeyMountPath, p.sshKey, dagger.ContainerWithMountedSecretOpts{Mode: 0600}).
+		WithMountedSecret(knownHostsMountPath, p.knownHosts).
+		WithMountedSecret(registryPasswordMountPath, p.registryPassword)
 
-	if err := runSSH(p.ctx, p.sshClient, sshTarget, sshKeyMountPath, knownHostsMountPath,
-		fmt.Sprintf("cd %s && test -f %s", remoteDirectory, shellQuote(composeFile))); err != nil {
+	if err := runSSH(p.ctx, sshClient, p.sshTarget,
+		fmt.Sprintf("cd %s && test -f %s", remoteDirectory, shellQuote(p.composeFile))); err != nil {
 		return fmt.Errorf("compose file unavailable: %w", err)
 	}
-	if err := runSSH(p.ctx, p.sshClient, sshTarget, sshKeyMountPath, knownHostsMountPath,
-		shellCommand(composeRuntime, "login", registry, "-u", registryUsername, "--password-stdin"),
+	if err := runSSH(p.ctx, sshClient, p.sshTarget,
+		shellCommand(p.composeRuntime, "login", p.registry, "-u", p.registryUsername, "--password-stdin"),
 		dagger.ContainerWithExecOpts{RedirectStdin: registryPasswordMountPath}); err != nil {
 		return fmt.Errorf("registry unavailable or authentication failed: %w", err)
 	}
 
-	if err := runSSH(p.ctx, p.sshClient, sshTarget, sshKeyMountPath, knownHostsMountPath, pullImage); err != nil {
-		return fmt.Errorf("image unavailable: %s: %w", image, err)
+	if err := runSSH(p.ctx, sshClient, p.sshTarget, shellCommand(p.composeRuntime, "pull", p.image)); err != nil {
+		return fmt.Errorf("image unavailable: %s: %w", p.image, err)
 	}
 
-	if err := runSSH(p.ctx, p.sshClient, sshTarget, sshKeyMountPath, knownHostsMountPath,
-		shellCommand(composeRuntime, "pull", image)); err != nil {
+	if err := runSSH(p.ctx, sshClient, p.sshTarget, runCompose); err != nil {
 		return fmt.Errorf("compose deployment failed: %w", err)
 	}
 	return nil
 }
 
-func runSSH(ctx context.Context, client *dagger.Container, target, sshKeyMountPath, knownHostsMountPath, command string, opts ...dagger.ContainerWithExecOpts) error {
-	_, err := client.WithExec(sshExec(target, sshKeyMountPath, knownHostsMountPath, command), opts...).Sync(ctx)
+func runSSH(ctx context.Context, client *dagger.Container, target, command string, opts ...dagger.ContainerWithExecOpts) error {
+	_, err := client.WithExec(sshExec(target, command), opts...).Sync(ctx)
 	return err
 }
 
@@ -323,7 +322,6 @@ func (m *Daggerer) checkRegistryAccess(
 	ctx context.Context,
 	registry, username string,
 	password *dagger.Secret,
-	registryPasswordMountPath string,
 ) error {
 	// Internal authentication helper; independent of the deployment runtime.
 	_, err := dag.Container().From("docker:27.5.1-cli").
@@ -340,14 +338,15 @@ func (m *Daggerer) checkRegistryAccess(
 	return nil
 }
 
-func sshExec(target, sshKeyMountPath, knownHostsMountPath, command string) []string {
+func sshExec(target, command string) []string {
 	return []string{
 		"ssh",
+		"-o", "BatchMode=yes",
 		"-o", "IdentitiesOnly=yes",
 		"-o", "StrictHostKeyChecking=yes",
 		"-o", "UserKnownHostsFile=" + knownHostsMountPath,
 		"-i", sshKeyMountPath,
-		sshTarget,
+		target,
 		command,
 	}
 }

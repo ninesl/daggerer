@@ -240,11 +240,11 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg registryPassword", err))
 				}
 			}
-			var registryPasswordMountPath string
-			if inputArgs["registryPasswordMountPath"] != nil {
-				err = json.Unmarshal([]byte(inputArgs["registryPasswordMountPath"]), &registryPasswordMountPath)
+			var dockerfile string
+			if inputArgs["dockerfile"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["dockerfile"]), &dockerfile)
 				if err != nil {
-					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg registryPasswordMountPath", err))
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg dockerfile", err))
 				}
 			}
 			var buildEnvFile *dagger.File
@@ -254,7 +254,7 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg buildEnvFile", err))
 				}
 			}
-			var buildValues *dagger.EnvFile
+			var buildValues string
 			if inputArgs["buildValues"] != nil {
 				err = json.Unmarshal([]byte(inputArgs["buildValues"]), &buildValues)
 				if err != nil {
@@ -268,28 +268,7 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg buildSecretEnv", err))
 				}
 			}
-			var buildSecretIds []string
-			if inputArgs["buildSecretIDs"] != nil {
-				err = json.Unmarshal([]byte(inputArgs["buildSecretIDs"]), &buildSecretIds)
-				if err != nil {
-					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg buildSecretIDs", err))
-				}
-			}
-			var buildSecrets []*dagger.Secret
-			if inputArgs["buildSecrets"] != nil {
-				err = json.Unmarshal([]byte(inputArgs["buildSecrets"]), &buildSecrets)
-				if err != nil {
-					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg buildSecrets", err))
-				}
-			}
-			var dockerfile string
-			if inputArgs["dockerfile"] != nil {
-				err = json.Unmarshal([]byte(inputArgs["dockerfile"]), &dockerfile)
-				if err != nil {
-					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg dockerfile", err))
-				}
-			}
-			return (*Daggerer).Build(&parent, ctx, source, registry, appName, tag, registryUsername, registryPassword, registryPasswordMountPath, buildEnvFile, buildValues, buildSecretEnv, buildSecretIds, buildSecrets, dockerfile)
+			return (*Daggerer).Build(&parent, ctx, source, registry, appName, tag, registryUsername, registryPassword, dockerfile, buildEnvFile, buildValues, buildSecretEnv)
 		case "BuildOnly":
 			var parent Daggerer
 			err = json.Unmarshal(parentJSON, &parent)
@@ -310,7 +289,7 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg buildEnvFile", err))
 				}
 			}
-			var buildValues *dagger.EnvFile
+			var buildValues string
 			if inputArgs["buildValues"] != nil {
 				err = json.Unmarshal([]byte(inputArgs["buildValues"]), &buildValues)
 				if err != nil {
@@ -324,20 +303,6 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg buildSecretEnv", err))
 				}
 			}
-			var buildSecretIds []string
-			if inputArgs["buildSecretIDs"] != nil {
-				err = json.Unmarshal([]byte(inputArgs["buildSecretIDs"]), &buildSecretIds)
-				if err != nil {
-					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg buildSecretIDs", err))
-				}
-			}
-			var buildSecrets []*dagger.Secret
-			if inputArgs["buildSecrets"] != nil {
-				err = json.Unmarshal([]byte(inputArgs["buildSecrets"]), &buildSecrets)
-				if err != nil {
-					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg buildSecrets", err))
-				}
-			}
 			var dockerfile string
 			if inputArgs["dockerfile"] != nil {
 				err = json.Unmarshal([]byte(inputArgs["dockerfile"]), &dockerfile)
@@ -345,7 +310,7 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg dockerfile", err))
 				}
 			}
-			return (*Daggerer).BuildOnly(&parent, ctx, source, buildEnvFile, buildValues, buildSecretEnv, buildSecretIds, buildSecrets, dockerfile)
+			return (*Daggerer).BuildOnly(&parent, ctx, source, buildEnvFile, buildValues, buildSecretEnv, dockerfile)
 		case "Deploy":
 			var parent Daggerer
 			err = json.Unmarshal(parentJSON, &parent)
@@ -394,25 +359,25 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg knownHosts", err))
 				}
 			}
-			var sshKeyMountPath string
-			if inputArgs["sshKeyMountPath"] != nil {
-				err = json.Unmarshal([]byte(inputArgs["sshKeyMountPath"]), &sshKeyMountPath)
-				if err != nil {
-					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg sshKeyMountPath", err))
-				}
-			}
-			var knownHostsMountPath string
-			if inputArgs["knownHostsMountPath"] != nil {
-				err = json.Unmarshal([]byte(inputArgs["knownHostsMountPath"]), &knownHostsMountPath)
-				if err != nil {
-					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg knownHostsMountPath", err))
-				}
-			}
 			var deployDirectory string
 			if inputArgs["deployDirectory"] != nil {
 				err = json.Unmarshal([]byte(inputArgs["deployDirectory"]), &deployDirectory)
 				if err != nil {
 					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg deployDirectory", err))
+				}
+			}
+			var deployEnvFile *dagger.File
+			if inputArgs["deployEnvFile"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["deployEnvFile"]), &deployEnvFile)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg deployEnvFile", err))
+				}
+			}
+			var deployValues string
+			if inputArgs["deployValues"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["deployValues"]), &deployValues)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg deployValues", err))
 				}
 			}
 			var deployContainerRuntime string
@@ -429,13 +394,6 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg composeFile", err))
 				}
 			}
-			var sshImage string
-			if inputArgs["sshImage"] != nil {
-				err = json.Unmarshal([]byte(inputArgs["sshImage"]), &sshImage)
-				if err != nil {
-					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg sshImage", err))
-				}
-			}
 			var registryUsername string
 			if inputArgs["registryUsername"] != nil {
 				err = json.Unmarshal([]byte(inputArgs["registryUsername"]), &registryUsername)
@@ -450,14 +408,7 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg registryPassword", err))
 				}
 			}
-			var registryPasswordMountPath string
-			if inputArgs["registryPasswordMountPath"] != nil {
-				err = json.Unmarshal([]byte(inputArgs["registryPasswordMountPath"]), &registryPasswordMountPath)
-				if err != nil {
-					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg registryPasswordMountPath", err))
-				}
-			}
-			return nil, (*Daggerer).Deploy(&parent, ctx, registry, appName, tag, sshTarget, sshKey, knownHosts, sshKeyMountPath, knownHostsMountPath, deployDirectory, deployContainerRuntime, composeFile, sshImage, registryUsername, registryPassword, registryPasswordMountPath)
+			return nil, (*Daggerer).Deploy(&parent, ctx, registry, appName, tag, sshTarget, sshKey, knownHosts, deployDirectory, deployEnvFile, deployValues, deployContainerRuntime, composeFile, registryUsername, registryPassword)
 		case "Release":
 			var parent Daggerer
 			err = json.Unmarshal(parentJSON, &parent)
@@ -513,20 +464,6 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg knownHosts", err))
 				}
 			}
-			var sshKeyMountPath string
-			if inputArgs["sshKeyMountPath"] != nil {
-				err = json.Unmarshal([]byte(inputArgs["sshKeyMountPath"]), &sshKeyMountPath)
-				if err != nil {
-					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg sshKeyMountPath", err))
-				}
-			}
-			var knownHostsMountPath string
-			if inputArgs["knownHostsMountPath"] != nil {
-				err = json.Unmarshal([]byte(inputArgs["knownHostsMountPath"]), &knownHostsMountPath)
-				if err != nil {
-					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg knownHostsMountPath", err))
-				}
-			}
 			var deployDirectory string
 			if inputArgs["deployDirectory"] != nil {
 				err = json.Unmarshal([]byte(inputArgs["deployDirectory"]), &deployDirectory)
@@ -534,11 +471,18 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg deployDirectory", err))
 				}
 			}
-			var deployContainerRuntime string
-			if inputArgs["deployContainerRuntime"] != nil {
-				err = json.Unmarshal([]byte(inputArgs["deployContainerRuntime"]), &deployContainerRuntime)
+			var deployEnvFile *dagger.File
+			if inputArgs["deployEnvFile"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["deployEnvFile"]), &deployEnvFile)
 				if err != nil {
-					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg deployContainerRuntime", err))
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg deployEnvFile", err))
+				}
+			}
+			var deployValues string
+			if inputArgs["deployValues"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["deployValues"]), &deployValues)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg deployValues", err))
 				}
 			}
 			var composeFile string
@@ -548,11 +492,11 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg composeFile", err))
 				}
 			}
-			var sshImage string
-			if inputArgs["sshImage"] != nil {
-				err = json.Unmarshal([]byte(inputArgs["sshImage"]), &sshImage)
+			var deployContainerRuntime string
+			if inputArgs["deployContainerRuntime"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["deployContainerRuntime"]), &deployContainerRuntime)
 				if err != nil {
-					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg sshImage", err))
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg deployContainerRuntime", err))
 				}
 			}
 			var registryUsername string
@@ -569,13 +513,6 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg registryPassword", err))
 				}
 			}
-			var registryPasswordMountPath string
-			if inputArgs["registryPasswordMountPath"] != nil {
-				err = json.Unmarshal([]byte(inputArgs["registryPasswordMountPath"]), &registryPasswordMountPath)
-				if err != nil {
-					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg registryPasswordMountPath", err))
-				}
-			}
 			var buildEnvFile *dagger.File
 			if inputArgs["buildEnvFile"] != nil {
 				err = json.Unmarshal([]byte(inputArgs["buildEnvFile"]), &buildEnvFile)
@@ -583,7 +520,7 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg buildEnvFile", err))
 				}
 			}
-			var buildValues *dagger.EnvFile
+			var buildValues string
 			if inputArgs["buildValues"] != nil {
 				err = json.Unmarshal([]byte(inputArgs["buildValues"]), &buildValues)
 				if err != nil {
@@ -597,20 +534,6 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg buildSecretEnv", err))
 				}
 			}
-			var buildSecretIds []string
-			if inputArgs["buildSecretIDs"] != nil {
-				err = json.Unmarshal([]byte(inputArgs["buildSecretIDs"]), &buildSecretIds)
-				if err != nil {
-					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg buildSecretIDs", err))
-				}
-			}
-			var buildSecrets []*dagger.Secret
-			if inputArgs["buildSecrets"] != nil {
-				err = json.Unmarshal([]byte(inputArgs["buildSecrets"]), &buildSecrets)
-				if err != nil {
-					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg buildSecrets", err))
-				}
-			}
 			var dockerfile string
 			if inputArgs["dockerfile"] != nil {
 				err = json.Unmarshal([]byte(inputArgs["dockerfile"]), &dockerfile)
@@ -618,7 +541,7 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg dockerfile", err))
 				}
 			}
-			return nil, (*Daggerer).Release(&parent, ctx, source, registry, appName, tag, sshTarget, sshKey, knownHosts, sshKeyMountPath, knownHostsMountPath, deployDirectory, deployContainerRuntime, composeFile, sshImage, registryUsername, registryPassword, registryPasswordMountPath, buildEnvFile, buildValues, buildSecretEnv, buildSecretIds, buildSecrets, dockerfile)
+			return nil, (*Daggerer).Release(&parent, ctx, source, registry, appName, tag, sshTarget, sshKey, knownHosts, deployDirectory, deployEnvFile, deployValues, composeFile, deployContainerRuntime, registryUsername, registryPassword, buildEnvFile, buildValues, buildSecretEnv, dockerfile)
 		default:
 			return nil, fmt.Errorf("unknown function %s", fnName)
 		}
@@ -629,83 +552,72 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 					WithFunction(
 						dag.Function("Build",
 							dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).
-							WithDescription("Build and publish an image.").
+							WithDescription("Build and publish an image. Returns the deployed image and tag.").
 							WithCachePolicy(dagger.FunctionCachePolicyNever).
-							WithSourceMap(dag.SourceMap("main.go", 78, 1)).
-							WithArg("source", dag.TypeDef().WithObject("Directory"), dagger.FunctionWithArgOpts{Description: "Application checkout to use as the build context.", SourceMap: dag.SourceMap("main.go", 81, 2)}).
-							WithArg("registry", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "Registry hostname, optionally including its port.", SourceMap: dag.SourceMap("main.go", 83, 2)}).
-							WithArg("appName", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "Image repository name inside the registry.", SourceMap: dag.SourceMap("main.go", 85, 2)}).
-							WithArg("tag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 87, 2), DefaultValue: dagger.JSON("\"latest\"")}).
-							WithArg("registryUsername", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 88, 2)}).
-							WithArg("registryPassword", dag.TypeDef().WithObject("Secret"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 89, 2)}).
-							WithArg("registryPasswordMountPath", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "Registry password mount path inside the registry client.", SourceMap: dag.SourceMap("main.go", 92, 2), DefaultValue: dagger.JSON("\"/run/secrets/registry_password\"")}).
-							WithArg("buildEnvFile", dag.TypeDef().WithObject("File").WithOptional(true), dagger.FunctionWithArgOpts{Description: "Public .env file, parsed by Dagger. Never supply credentials here.", SourceMap: dag.SourceMap("main.go", 95, 2)}).
-							WithArg("buildValues", dag.TypeDef().WithObject("EnvFile").WithOptional(true), dagger.FunctionWithArgOpts{Description: "Public values constructed with EnvFile.WithVariable; override file values.", SourceMap: dag.SourceMap("main.go", 98, 2)}).
-							WithArg("buildSecretEnv", dag.TypeDef().WithObject("Secret").WithOptional(true), dagger.FunctionWithArgOpts{Description: "Private .env mounted intact as the BuildKit secret build_env.", SourceMap: dag.SourceMap("main.go", 101, 2)}).
-							WithArg("buildSecretIDs", dag.TypeDef().WithListOf(dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).WithOptional(true), dagger.FunctionWithArgOpts{Description: "BuildKit secret IDs, paired by position with buildSecrets.", SourceMap: dag.SourceMap("main.go", 104, 2)}).
-							WithArg("buildSecrets", dag.TypeDef().WithListOf(dag.TypeDef().WithObject("Secret")).WithOptional(true), dagger.FunctionWithArgOpts{Description: "Secret values, paired by position with buildSecretIDs.", SourceMap: dag.SourceMap("main.go", 107, 2)}).
-							WithArg("dockerfile", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "Dockerfile path relative to the build context.", SourceMap: dag.SourceMap("main.go", 110, 2), DefaultValue: dagger.JSON("\"Dockerfile\"")})).
+							WithSourceMap(dag.SourceMap("main.go", 59, 1)).
+							WithArg("source", dag.TypeDef().WithObject("Directory"), dagger.FunctionWithArgOpts{Description: "Application checkout to use as the build context.", SourceMap: dag.SourceMap("main.go", 62, 2)}).
+							WithArg("registry", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "Registry hostname, optionally including its port.", SourceMap: dag.SourceMap("main.go", 64, 2)}).
+							WithArg("appName", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "Image repository name inside the registry.", SourceMap: dag.SourceMap("main.go", 66, 2)}).
+							WithArg("tag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 68, 2), DefaultValue: dagger.JSON("\"latest\"")}).
+							WithArg("registryUsername", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 69, 2)}).
+							WithArg("registryPassword", dag.TypeDef().WithObject("Secret"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 70, 2)}).
+							WithArg("dockerfile", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "Dockerfile path relative to the build context.", SourceMap: dag.SourceMap("main.go", 73, 2), DefaultValue: dagger.JSON("\"Dockerfile\"")}).
+							WithArg("buildEnvFile", dag.TypeDef().WithObject("File").WithOptional(true), dagger.FunctionWithArgOpts{Description: "Public .env file, parsed by Dagger. Never supply credentials here.", SourceMap: dag.SourceMap("main.go", 76, 2)}).
+							WithArg("buildValues", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind).WithOptional(true), dagger.FunctionWithArgOpts{Description: "Public dotenv text, parsed by Dagger; overrides buildEnvFile values. Never supply credentials here.", SourceMap: dag.SourceMap("main.go", 79, 2)}).
+							WithArg("buildSecretEnv", dag.TypeDef().WithObject("Secret").WithOptional(true), dagger.FunctionWithArgOpts{Description: "Private .env mounted intact as the BuildKit secret build_env.", SourceMap: dag.SourceMap("main.go", 82, 2)})).
 					WithFunction(
 						dag.Function("BuildOnly",
 							dag.TypeDef().WithObject("Container")).
 							WithDescription("Build a container without publishing it.").
-							WithSourceMap(dag.SourceMap("main.go", 16, 1)).
-							WithArg("source", dag.TypeDef().WithObject("Directory"), dagger.FunctionWithArgOpts{Description: "Application checkout to use as the build context.", SourceMap: dag.SourceMap("main.go", 19, 2)}).
-							WithArg("buildEnvFile", dag.TypeDef().WithObject("File").WithOptional(true), dagger.FunctionWithArgOpts{Description: "Public .env file, parsed by Dagger. Never supply credentials here.", SourceMap: dag.SourceMap("main.go", 22, 2)}).
-							WithArg("buildValues", dag.TypeDef().WithObject("EnvFile").WithOptional(true), dagger.FunctionWithArgOpts{Description: "Public values constructed with EnvFile.WithVariable; override file values.", SourceMap: dag.SourceMap("main.go", 25, 2)}).
-							WithArg("buildSecretEnv", dag.TypeDef().WithObject("Secret").WithOptional(true), dagger.FunctionWithArgOpts{Description: "Private .env mounted intact as the BuildKit secret build_env.", SourceMap: dag.SourceMap("main.go", 28, 2)}).
-							WithArg("buildSecretIDs", dag.TypeDef().WithListOf(dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).WithOptional(true), dagger.FunctionWithArgOpts{Description: "BuildKit secret IDs, paired by position with buildSecrets.", SourceMap: dag.SourceMap("main.go", 31, 2)}).
-							WithArg("buildSecrets", dag.TypeDef().WithListOf(dag.TypeDef().WithObject("Secret")).WithOptional(true), dagger.FunctionWithArgOpts{Description: "Secret values, paired by position with buildSecretIDs.", SourceMap: dag.SourceMap("main.go", 34, 2)}).
+							WithSourceMap(dag.SourceMap("main.go", 22, 1)).
+							WithArg("source", dag.TypeDef().WithObject("Directory"), dagger.FunctionWithArgOpts{Description: "Application checkout to use as the build context.", SourceMap: dag.SourceMap("main.go", 25, 2)}).
+							WithArg("buildEnvFile", dag.TypeDef().WithObject("File").WithOptional(true), dagger.FunctionWithArgOpts{Description: "Public .env file, parsed by Dagger. Never supply credentials here.", SourceMap: dag.SourceMap("main.go", 28, 2)}).
+							WithArg("buildValues", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind).WithOptional(true), dagger.FunctionWithArgOpts{Description: "Public dotenv text, parsed by Dagger; overrides buildEnvFile values. Never supply credentials here.", SourceMap: dag.SourceMap("main.go", 31, 2)}).
+							WithArg("buildSecretEnv", dag.TypeDef().WithObject("Secret").WithOptional(true), dagger.FunctionWithArgOpts{Description: "Private .env mounted intact as the BuildKit secret build_env.", SourceMap: dag.SourceMap("main.go", 34, 2)}).
 							WithArg("dockerfile", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "Dockerfile path relative to the build context.", SourceMap: dag.SourceMap("main.go", 37, 2), DefaultValue: dagger.JSON("\"Dockerfile\"")})).
 					WithFunction(
 						dag.Function("Deploy",
 							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
 							WithDescription("Deploy an existing image with Compose.").
 							WithCachePolicy(dagger.FunctionCachePolicyNever).
-							WithSourceMap(dag.SourceMap("main.go", 194, 1)).
-							WithArg("registry", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "Registry hostname, optionally including its port.", SourceMap: dag.SourceMap("main.go", 197, 2)}).
-							WithArg("appName", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "Image repository name inside the registry.", SourceMap: dag.SourceMap("main.go", 199, 2)}).
-							WithArg("tag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 201, 2), DefaultValue: dagger.JSON("\"latest\"")}).
-							WithArg("sshTarget", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "SSH destination in user@host form.", SourceMap: dag.SourceMap("main.go", 203, 2)}).
-							WithArg("sshKey", dag.TypeDef().WithObject("Secret"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 204, 2)}).
-							WithArg("knownHosts", dag.TypeDef().WithObject("Secret"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 205, 2)}).
-							WithArg("sshKeyMountPath", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "SSH key mount path inside the SSH client.", SourceMap: dag.SourceMap("main.go", 208, 2), DefaultValue: dagger.JSON("\"/run/secrets/ssh_key\"")}).
-							WithArg("knownHostsMountPath", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "Known-hosts mount path inside the SSH client.", SourceMap: dag.SourceMap("main.go", 211, 2), DefaultValue: dagger.JSON("\"/run/secrets/known_hosts\"")}).
-							WithArg("deployDirectory", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "Remote directory relative to the SSH user's home.", SourceMap: dag.SourceMap("main.go", 213, 2)}).
-							WithArg("deployContainerRuntime", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "Required deployment CLI: docker or podman. Supplied by the workflow preset.", SourceMap: dag.SourceMap("main.go", 215, 2)}).
-							WithArg("composeFile", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 217, 2), DefaultValue: dagger.JSON("\"compose.yml\"")}).
-							WithArg("sshImage", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "Container image used for the SSH client.", SourceMap: dag.SourceMap("main.go", 220, 2), DefaultValue: dagger.JSON("\"alpine:3.24.1\"")}).
-							WithArg("registryUsername", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 221, 2)}).
-							WithArg("registryPassword", dag.TypeDef().WithObject("Secret"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 222, 2)}).
-							WithArg("registryPasswordMountPath", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "Registry password mount path inside the SSH client.", SourceMap: dag.SourceMap("main.go", 225, 2), DefaultValue: dagger.JSON("\"/run/secrets/registry_password\"")})).
+							WithSourceMap(dag.SourceMap("main.go", 157, 1)).
+							WithArg("registry", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "Registry hostname, optionally including its port.", SourceMap: dag.SourceMap("main.go", 160, 2)}).
+							WithArg("appName", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "Image repository name inside the registry.", SourceMap: dag.SourceMap("main.go", 162, 2)}).
+							WithArg("tag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 164, 2), DefaultValue: dagger.JSON("\"latest\"")}).
+							WithArg("sshTarget", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "ssh destination: user@host", SourceMap: dag.SourceMap("main.go", 166, 2)}).
+							WithArg("sshKey", dag.TypeDef().WithObject("Secret"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 167, 2)}).
+							WithArg("knownHosts", dag.TypeDef().WithObject("Secret"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 168, 2)}).
+							WithArg("deployDirectory", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "Remote directory relative to the SSH user's home.", SourceMap: dag.SourceMap("main.go", 170, 2)}).
+							WithArg("deployEnvFile", dag.TypeDef().WithObject("File").WithOptional(true), dagger.FunctionWithArgOpts{Description: "Public dotenv file on the caller, forwarded to the remote Compose process. Never supply credentials here.", SourceMap: dag.SourceMap("main.go", 173, 2)}).
+							WithArg("deployValues", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind).WithOptional(true), dagger.FunctionWithArgOpts{Description: "Public dotenv text; overrides deployEnvFile values. No application variable names are implied.", SourceMap: dag.SourceMap("main.go", 176, 2)}).
+							WithArg("deployContainerRuntime", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "Required deployment CLI: docker or podman. Supplied by the workflow preset.", SourceMap: dag.SourceMap("main.go", 178, 2)}).
+							WithArg("composeFile", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 180, 2), DefaultValue: dagger.JSON("\"compose.yml\"")}).
+							WithArg("registryUsername", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 181, 2)}).
+							WithArg("registryPassword", dag.TypeDef().WithObject("Secret"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 182, 2)})).
 					WithFunction(
 						dag.Function("Release",
 							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
 							WithDescription("Build, publish, and deploy an image tag.").
 							WithCachePolicy(dagger.FunctionCachePolicyNever).
-							WithSourceMap(dag.SourceMap("main.go", 131, 1)).
-							WithArg("source", dag.TypeDef().WithObject("Directory"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 133, 2)}).
-							WithArg("registry", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "Registry hostname, optionally including its port.", SourceMap: dag.SourceMap("main.go", 135, 2)}).
-							WithArg("appName", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "Image repository name inside the registry.", SourceMap: dag.SourceMap("main.go", 137, 2)}).
-							WithArg("tag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 139, 2), DefaultValue: dagger.JSON("\"latest\"")}).
-							WithArg("sshTarget", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "SSH destination in user@host form.", SourceMap: dag.SourceMap("main.go", 141, 2)}).
-							WithArg("sshKey", dag.TypeDef().WithObject("Secret"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 142, 2)}).
-							WithArg("knownHosts", dag.TypeDef().WithObject("Secret"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 143, 2)}).
-							WithArg("sshKeyMountPath", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "SSH key mount path inside the SSH client.", SourceMap: dag.SourceMap("main.go", 146, 2), DefaultValue: dagger.JSON("\"/run/secrets/ssh_key\"")}).
-							WithArg("knownHostsMountPath", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "Known-hosts mount path inside the SSH client.", SourceMap: dag.SourceMap("main.go", 149, 2), DefaultValue: dagger.JSON("\"/run/secrets/known_hosts\"")}).
-							WithArg("deployDirectory", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "Remote directory relative to the SSH user's home.", SourceMap: dag.SourceMap("main.go", 151, 2)}).
-							WithArg("deployContainerRuntime", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "Required deployment CLI: docker or podman. Supplied by the workflow preset.", SourceMap: dag.SourceMap("main.go", 153, 2)}).
-							WithArg("composeFile", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 155, 2), DefaultValue: dagger.JSON("\"compose.yml\"")}).
-							WithArg("sshImage", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "Container image used for the SSH client.", SourceMap: dag.SourceMap("main.go", 158, 2), DefaultValue: dagger.JSON("\"alpine:3.24.1\"")}).
-							WithArg("registryUsername", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 159, 2)}).
-							WithArg("registryPassword", dag.TypeDef().WithObject("Secret"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 160, 2)}).
-							WithArg("registryPasswordMountPath", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "Registry password mount path inside helper containers.", SourceMap: dag.SourceMap("main.go", 163, 2), DefaultValue: dagger.JSON("\"/run/secrets/registry_password\"")}).
-							WithArg("buildEnvFile", dag.TypeDef().WithObject("File").WithOptional(true), dagger.FunctionWithArgOpts{Description: "Public .env file, parsed by Dagger. Never supply credentials here.", SourceMap: dag.SourceMap("main.go", 166, 2)}).
-							WithArg("buildValues", dag.TypeDef().WithObject("EnvFile").WithOptional(true), dagger.FunctionWithArgOpts{Description: "Public values constructed with EnvFile.WithVariable; override file values.", SourceMap: dag.SourceMap("main.go", 169, 2)}).
-							WithArg("buildSecretEnv", dag.TypeDef().WithObject("Secret").WithOptional(true), dagger.FunctionWithArgOpts{Description: "Private .env mounted intact as the BuildKit secret build_env.", SourceMap: dag.SourceMap("main.go", 172, 2)}).
-							WithArg("buildSecretIDs", dag.TypeDef().WithListOf(dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).WithOptional(true), dagger.FunctionWithArgOpts{Description: "BuildKit secret IDs, paired by position with buildSecrets.", SourceMap: dag.SourceMap("main.go", 175, 2)}).
-							WithArg("buildSecrets", dag.TypeDef().WithListOf(dag.TypeDef().WithObject("Secret")).WithOptional(true), dagger.FunctionWithArgOpts{Description: "Secret values, paired by position with buildSecretIDs.", SourceMap: dag.SourceMap("main.go", 178, 2)}).
-							WithArg("dockerfile", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 180, 2), DefaultValue: dagger.JSON("\"Dockerfile\"")}))), nil
+							WithSourceMap(dag.SourceMap("main.go", 104, 1)).
+							WithArg("source", dag.TypeDef().WithObject("Directory"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 106, 2)}).
+							WithArg("registry", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "OCR Image registry host name", SourceMap: dag.SourceMap("main.go", 108, 2)}).
+							WithArg("appName", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "OCR Image repository name inside the registry", SourceMap: dag.SourceMap("main.go", 110, 2)}).
+							WithArg("tag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "What tag to use for this release", SourceMap: dag.SourceMap("main.go", 113, 2), DefaultValue: dagger.JSON("\"latest\"")}).
+							WithArg("sshTarget", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "ssh deploy destination target in user@host form", SourceMap: dag.SourceMap("main.go", 115, 2)}).
+							WithArg("sshKey", dag.TypeDef().WithObject("Secret"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 116, 2)}).
+							WithArg("knownHosts", dag.TypeDef().WithObject("Secret"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 117, 2)}).
+							WithArg("deployDirectory", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "Remote directory relative to the SSH user's home", SourceMap: dag.SourceMap("main.go", 119, 2)}).
+							WithArg("deployEnvFile", dag.TypeDef().WithObject("File").WithOptional(true), dagger.FunctionWithArgOpts{Description: "Public dotenv file on the caller, forwarded to the remote Compose process. Never supply credentials here.", SourceMap: dag.SourceMap("main.go", 122, 2)}).
+							WithArg("deployValues", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind).WithOptional(true), dagger.FunctionWithArgOpts{Description: "Public dotenv text; overrides deployEnvFile values. No application variable names are implied.", SourceMap: dag.SourceMap("main.go", 125, 2)}).
+							WithArg("composeFile", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "Compose file name that is in the deploy directory.", SourceMap: dag.SourceMap("main.go", 128, 2), DefaultValue: dagger.JSON("\"compose.yml\"")}).
+							WithArg("deployContainerRuntime", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "docker or podman. Is used on the VPS that has your `compose.yml`", SourceMap: dag.SourceMap("main.go", 130, 2)}).
+							WithArg("registryUsername", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 131, 2)}).
+							WithArg("registryPassword", dag.TypeDef().WithObject("Secret"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 132, 2)}).
+							WithArg("buildEnvFile", dag.TypeDef().WithObject("File").WithOptional(true), dagger.FunctionWithArgOpts{Description: "Public .env file, parsed by Dagger. You really shouldn't supply credentials here.", SourceMap: dag.SourceMap("main.go", 135, 2)}).
+							WithArg("buildValues", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind).WithOptional(true), dagger.FunctionWithArgOpts{Description: "Public dotenv text, parsed by Dagger; overrides buildEnvFile values. Never supply credentials here.", SourceMap: dag.SourceMap("main.go", 138, 2)}).
+							WithArg("buildSecretEnv", dag.TypeDef().WithObject("Secret").WithOptional(true), dagger.FunctionWithArgOpts{Description: "Private .env mounted intact as the BuildKit secret build_env.", SourceMap: dag.SourceMap("main.go", 141, 2)}).
+							WithArg("dockerfile", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 143, 2), DefaultValue: dagger.JSON("\"Dockerfile\"")}))), nil
 	default:
 		return nil, fmt.Errorf("unknown object %s", parentName)
 	}

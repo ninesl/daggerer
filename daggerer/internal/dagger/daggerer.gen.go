@@ -29,27 +29,19 @@ type DaggererBuildOpts struct {
 
 	// Default: "latest"
 	Tag string
-	// Registry password mount path inside the registry client.
-	//
-	// Default: "/run/secrets/registry_password"
-	RegistryPasswordMountPath string
-	// Public .env file, parsed by Dagger. Never supply credentials here.
-	BuildEnvFile *File
-	// Public values constructed with EnvFile.WithVariable; override file values.
-	BuildValues *EnvFile
-	// Private .env mounted intact as the BuildKit secret build_env.
-	BuildSecretEnv *Secret
-	// BuildKit secret IDs, paired by position with buildSecrets.
-	BuildSecretIds []string
-	// Secret values, paired by position with buildSecretIDs.
-	BuildSecrets []*Secret
 	// Dockerfile path relative to the build context.
 	//
 	// Default: "Dockerfile"
 	Dockerfile string
+	// Public .env file, parsed by Dagger. Never supply credentials here.
+	BuildEnvFile *File
+	// Public dotenv text, parsed by Dagger; overrides buildEnvFile values. Never supply credentials here.
+	BuildValues string
+	// Private .env mounted intact as the BuildKit secret build_env.
+	BuildSecretEnv *Secret
 }
 
-// Build and publish an image.
+// Build and publish an image. Returns the deployed image and tag.
 func (r *Daggerer) Build(ctx context.Context, source *Directory, registry string, appName string, registryUsername string, registryPassword *Secret, opts ...DaggererBuildOpts) (string, error) {
 	assertNotNil("source", source)
 	assertNotNil("registryPassword", registryPassword)
@@ -62,9 +54,9 @@ func (r *Daggerer) Build(ctx context.Context, source *Directory, registry string
 		if !querybuilder.IsZeroValue(opts[i].Tag) {
 			q = q.Arg("tag", opts[i].Tag)
 		}
-		// `registryPasswordMountPath` optional argument
-		if !querybuilder.IsZeroValue(opts[i].RegistryPasswordMountPath) {
-			q = q.Arg("registryPasswordMountPath", opts[i].RegistryPasswordMountPath)
+		// `dockerfile` optional argument
+		if !querybuilder.IsZeroValue(opts[i].Dockerfile) {
+			q = q.Arg("dockerfile", opts[i].Dockerfile)
 		}
 		// `buildEnvFile` optional argument
 		if !querybuilder.IsZeroValue(opts[i].BuildEnvFile) {
@@ -77,18 +69,6 @@ func (r *Daggerer) Build(ctx context.Context, source *Directory, registry string
 		// `buildSecretEnv` optional argument
 		if !querybuilder.IsZeroValue(opts[i].BuildSecretEnv) {
 			q = q.Arg("buildSecretEnv", opts[i].BuildSecretEnv)
-		}
-		// `buildSecretIds` optional argument
-		if !querybuilder.IsZeroValue(opts[i].BuildSecretIds) {
-			q = q.Arg("buildSecretIds", opts[i].BuildSecretIds)
-		}
-		// `buildSecrets` optional argument
-		if !querybuilder.IsZeroValue(opts[i].BuildSecrets) {
-			q = q.Arg("buildSecrets", opts[i].BuildSecrets)
-		}
-		// `dockerfile` optional argument
-		if !querybuilder.IsZeroValue(opts[i].Dockerfile) {
-			q = q.Arg("dockerfile", opts[i].Dockerfile)
 		}
 	}
 	q = q.Arg("source", source)
@@ -107,14 +87,10 @@ func (r *Daggerer) Build(ctx context.Context, source *Directory, registry string
 type DaggererBuildOnlyOpts struct {
 	// Public .env file, parsed by Dagger. Never supply credentials here.
 	BuildEnvFile *File
-	// Public values constructed with EnvFile.WithVariable; override file values.
-	BuildValues *EnvFile
+	// Public dotenv text, parsed by Dagger; overrides buildEnvFile values. Never supply credentials here.
+	BuildValues string
 	// Private .env mounted intact as the BuildKit secret build_env.
 	BuildSecretEnv *Secret
-	// BuildKit secret IDs, paired by position with buildSecrets.
-	BuildSecretIds []string
-	// Secret values, paired by position with buildSecretIDs.
-	BuildSecrets []*Secret
 	// Dockerfile path relative to the build context.
 	//
 	// Default: "Dockerfile"
@@ -138,14 +114,6 @@ func (r *Daggerer) BuildOnly(source *Directory, opts ...DaggererBuildOnlyOpts) *
 		if !querybuilder.IsZeroValue(opts[i].BuildSecretEnv) {
 			q = q.Arg("buildSecretEnv", opts[i].BuildSecretEnv)
 		}
-		// `buildSecretIds` optional argument
-		if !querybuilder.IsZeroValue(opts[i].BuildSecretIds) {
-			q = q.Arg("buildSecretIds", opts[i].BuildSecretIds)
-		}
-		// `buildSecrets` optional argument
-		if !querybuilder.IsZeroValue(opts[i].BuildSecrets) {
-			q = q.Arg("buildSecrets", opts[i].BuildSecrets)
-		}
 		// `dockerfile` optional argument
 		if !querybuilder.IsZeroValue(opts[i].Dockerfile) {
 			q = q.Arg("dockerfile", opts[i].Dockerfile)
@@ -163,25 +131,13 @@ type DaggererDeployOpts struct {
 
 	// Default: "latest"
 	Tag string
-	// SSH key mount path inside the SSH client.
-	//
-	// Default: "/run/secrets/ssh_key"
-	SSHKeyMountPath string
-	// Known-hosts mount path inside the SSH client.
-	//
-	// Default: "/run/secrets/known_hosts"
-	KnownHostsMountPath string
+	// Public dotenv file on the caller, forwarded to the remote Compose process. Never supply credentials here.
+	DeployEnvFile *File
+	// Public dotenv text; overrides deployEnvFile values. No application variable names are implied.
+	DeployValues string
 
 	// Default: "compose.yml"
 	ComposeFile string
-	// Container image used for the SSH client.
-	//
-	// Default: "alpine:3.24.1"
-	SSHImage string
-	// Registry password mount path inside the SSH client.
-	//
-	// Default: "/run/secrets/registry_password"
-	RegistryPasswordMountPath string
 }
 
 // Deploy an existing image with Compose.
@@ -198,25 +154,17 @@ func (r *Daggerer) Deploy(ctx context.Context, registry string, appName string, 
 		if !querybuilder.IsZeroValue(opts[i].Tag) {
 			q = q.Arg("tag", opts[i].Tag)
 		}
-		// `sshKeyMountPath` optional argument
-		if !querybuilder.IsZeroValue(opts[i].SSHKeyMountPath) {
-			q = q.Arg("sshKeyMountPath", opts[i].SSHKeyMountPath)
+		// `deployEnvFile` optional argument
+		if !querybuilder.IsZeroValue(opts[i].DeployEnvFile) {
+			q = q.Arg("deployEnvFile", opts[i].DeployEnvFile)
 		}
-		// `knownHostsMountPath` optional argument
-		if !querybuilder.IsZeroValue(opts[i].KnownHostsMountPath) {
-			q = q.Arg("knownHostsMountPath", opts[i].KnownHostsMountPath)
+		// `deployValues` optional argument
+		if !querybuilder.IsZeroValue(opts[i].DeployValues) {
+			q = q.Arg("deployValues", opts[i].DeployValues)
 		}
 		// `composeFile` optional argument
 		if !querybuilder.IsZeroValue(opts[i].ComposeFile) {
 			q = q.Arg("composeFile", opts[i].ComposeFile)
-		}
-		// `sshImage` optional argument
-		if !querybuilder.IsZeroValue(opts[i].SSHImage) {
-			q = q.Arg("sshImage", opts[i].SSHImage)
-		}
-		// `registryPasswordMountPath` optional argument
-		if !querybuilder.IsZeroValue(opts[i].RegistryPasswordMountPath) {
-			q = q.Arg("registryPasswordMountPath", opts[i].RegistryPasswordMountPath)
 		}
 	}
 	q = q.Arg("registry", registry)
@@ -283,38 +231,24 @@ func (r *Daggerer) UnmarshalJSON(bs []byte) error {
 
 // DaggererReleaseOpts contains options for Daggerer.Release
 type DaggererReleaseOpts struct {
-
+	// What tag to use for this release
+	//
 	// Default: "latest"
 	Tag string
-	// SSH key mount path inside the SSH client.
+	// Public dotenv file on the caller, forwarded to the remote Compose process. Never supply credentials here.
+	DeployEnvFile *File
+	// Public dotenv text; overrides deployEnvFile values. No application variable names are implied.
+	DeployValues string
+	// Compose file name that is in the deploy directory.
 	//
-	// Default: "/run/secrets/ssh_key"
-	SSHKeyMountPath string
-	// Known-hosts mount path inside the SSH client.
-	//
-	// Default: "/run/secrets/known_hosts"
-	KnownHostsMountPath string
-
 	// Default: "compose.yml"
 	ComposeFile string
-	// Container image used for the SSH client.
-	//
-	// Default: "alpine:3.24.1"
-	SSHImage string
-	// Registry password mount path inside helper containers.
-	//
-	// Default: "/run/secrets/registry_password"
-	RegistryPasswordMountPath string
-	// Public .env file, parsed by Dagger. Never supply credentials here.
+	// Public .env file, parsed by Dagger. You really shouldn't supply credentials here.
 	BuildEnvFile *File
-	// Public values constructed with EnvFile.WithVariable; override file values.
-	BuildValues *EnvFile
+	// Public dotenv text, parsed by Dagger; overrides buildEnvFile values. Never supply credentials here.
+	BuildValues string
 	// Private .env mounted intact as the BuildKit secret build_env.
 	BuildSecretEnv *Secret
-	// BuildKit secret IDs, paired by position with buildSecrets.
-	BuildSecretIds []string
-	// Secret values, paired by position with buildSecretIDs.
-	BuildSecrets []*Secret
 
 	// Default: "Dockerfile"
 	Dockerfile string
@@ -335,25 +269,17 @@ func (r *Daggerer) Release(ctx context.Context, source *Directory, registry stri
 		if !querybuilder.IsZeroValue(opts[i].Tag) {
 			q = q.Arg("tag", opts[i].Tag)
 		}
-		// `sshKeyMountPath` optional argument
-		if !querybuilder.IsZeroValue(opts[i].SSHKeyMountPath) {
-			q = q.Arg("sshKeyMountPath", opts[i].SSHKeyMountPath)
+		// `deployEnvFile` optional argument
+		if !querybuilder.IsZeroValue(opts[i].DeployEnvFile) {
+			q = q.Arg("deployEnvFile", opts[i].DeployEnvFile)
 		}
-		// `knownHostsMountPath` optional argument
-		if !querybuilder.IsZeroValue(opts[i].KnownHostsMountPath) {
-			q = q.Arg("knownHostsMountPath", opts[i].KnownHostsMountPath)
+		// `deployValues` optional argument
+		if !querybuilder.IsZeroValue(opts[i].DeployValues) {
+			q = q.Arg("deployValues", opts[i].DeployValues)
 		}
 		// `composeFile` optional argument
 		if !querybuilder.IsZeroValue(opts[i].ComposeFile) {
 			q = q.Arg("composeFile", opts[i].ComposeFile)
-		}
-		// `sshImage` optional argument
-		if !querybuilder.IsZeroValue(opts[i].SSHImage) {
-			q = q.Arg("sshImage", opts[i].SSHImage)
-		}
-		// `registryPasswordMountPath` optional argument
-		if !querybuilder.IsZeroValue(opts[i].RegistryPasswordMountPath) {
-			q = q.Arg("registryPasswordMountPath", opts[i].RegistryPasswordMountPath)
 		}
 		// `buildEnvFile` optional argument
 		if !querybuilder.IsZeroValue(opts[i].BuildEnvFile) {
@@ -366,14 +292,6 @@ func (r *Daggerer) Release(ctx context.Context, source *Directory, registry stri
 		// `buildSecretEnv` optional argument
 		if !querybuilder.IsZeroValue(opts[i].BuildSecretEnv) {
 			q = q.Arg("buildSecretEnv", opts[i].BuildSecretEnv)
-		}
-		// `buildSecretIds` optional argument
-		if !querybuilder.IsZeroValue(opts[i].BuildSecretIds) {
-			q = q.Arg("buildSecretIds", opts[i].BuildSecretIds)
-		}
-		// `buildSecrets` optional argument
-		if !querybuilder.IsZeroValue(opts[i].BuildSecrets) {
-			q = q.Arg("buildSecrets", opts[i].BuildSecrets)
 		}
 		// `dockerfile` optional argument
 		if !querybuilder.IsZeroValue(opts[i].Dockerfile) {
