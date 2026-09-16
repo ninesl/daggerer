@@ -154,28 +154,39 @@ jobs:
             # Supply the step's current directory as the Docker build context
             # Here it contains the repository files placed by actions/checkout
             --source=.
+
             # Registry host and image namespace
             --registry=registry.example.com/team
+
             # The image will be registry.example.com/team/my-app:latest
             --app-name="$APPLICATION_NAME"
+
             # Account used for publishing and remote registry login.
             --registry-username=registry-user
+
             # file:// loads the runner-local file as a Dagger Secret.
             --registry-password="file://$HOME/secrets-actions/$APPLICATION_NAME/registry_password"
+
             # The `ssh` target is the runner VPS, using the runner user.
             --ssh-target=runner@runner.example.com
+
             # `ssh` key whose public key is authorized for the `ssh` target user.
             --ssh-key="file://$HOME/secrets-actions/$APPLICATION_NAME/ssh_key"
+
             # `known_hosts` file containing the verified host key for the `ssh` target.
             --known-hosts="file://$HOME/secrets-actions/$APPLICATION_NAME/known_hosts"
+
+            # Our VPS will use docker login, docker pull, and docker compose -f compose.yml up.
+            --deploy-container-runtime=docker
+
             # Relative to the `ssh` target user's home, not the runner's checkout.
             # Selects /home/runner/apps/my-app on this `ssh` target, contains compose.yml
             --deploy-directory="apps/$APPLICATION_NAME"
+
             # Forward our variables to docker compose -f compose.yml up on the `ssh` target.
             # APP_IMAGE exists here only because we pass it; --tag does not set it.
             --deploy-values="$DEPLOY_VALUES"
-            # Our VPS will use docker login, docker pull, and docker compose -f compose.yml up.
-            --deploy-container-runtime=docker
+
 ```
 
 - Omitted `--dockerfile`: uses `Dockerfile` at the root of `--source`.
@@ -349,57 +360,75 @@ jobs:
             # Supply the step's current directory as the Docker build context.
             # Here it contains the branch commit's files placed by actions/checkout.
             --source=.
+
             # Select myapp.Dockerfile relative to --source.
             # Daggerer builds the image using this file's instructions; production selects it too.
             --dockerfile=myapp.Dockerfile
+
             # Public build defaults from the application checkout.
             --build-env-file=build.env
+
             # Our hardcoded staging override takes precedence over build.env.
             --build-values="$BUILD_VALUES"
+
             # Shared private build file on the runner VPS; also used by production.
             --build-secret-env="file://$HOME/secrets-actions/$APPLICATION_NAME/private.env"
+
             # Publish and pull from this registry and namespace.
             --registry=registry.example.com/team
+
             # Our application name becomes the image name: my-app.
             --app-name="$APPLICATION_NAME"
+
             # Use this exact full commit hash; no shortening or prefix.
             # This controls the image published and pulled, not variables in dev.compose.yml.
             --tag=${{ github.sha }}
+
             # Registry account used for publish and deployment.
             --registry-username=registry-user
+
             # Shared registry password file on the runner VPS.
             --registry-password="file://$HOME/secrets-actions/$APPLICATION_NAME/registry_password"
+
             # Staging `ssh` target on the runner VPS; must be reachable from Dagger.
             --ssh-target=runner@runner.example.com
+
             # Staging `ssh` key whose public key is authorized for the staging `ssh` target user.
             --ssh-key="file://$HOME/secrets-actions/$APPLICATION_NAME/staging_ssh_key"
+
             # `known_hosts` file containing the verified host key for the staging `ssh` target.
             --known-hosts="file://$HOME/secrets-actions/$APPLICATION_NAME/staging_known_hosts"
+
+            # Run podman login, podman pull, and podman compose -f dev.compose.yml up.
+            --deploy-container-runtime=podman
+
             # Relative to the staging `ssh` target user's home, not the runner's checkout.
             # Selects /home/runner/staging/my-app on the staging `ssh` target.
             # All branch releases update this directory; tags do not create per-branch deployments.
             --deploy-directory="staging/$APPLICATION_NAME"
-            # Public process env defaults from our checkout's deploy.env; parsed by Dagger.
-            # This is a runner-side input, separate from .env read by dev.compose.yml on staging.
-            --deploy-env-file=deploy.env
-            # Forward our APP_IMAGE to podman compose -f dev.compose.yml up.
-            # Overrides matching deploy.env entries; no application variable names are automatic.
-            --deploy-values="$DEPLOY_VALUES"
+
             # Select dev.compose.yml inside --deploy-directory.
             # Its env_file and secrets entries select staging's .env and secrets/app_token.
             --compose-file=dev.compose.yml
-            # Run podman login, podman pull, and podman compose -f dev.compose.yml up.
-            --deploy-container-runtime=podman
+
+            # Public process env defaults from our checkout's deploy.env; parsed by Dagger.
+            # This is a runner-side input, separate from .env read by dev.compose.yml on staging.
+            --deploy-env-file=deploy.env
+
+            # Forward our APP_IMAGE to podman compose -f dev.compose.yml up.
+            # Overrides matching deploy.env entries; no application variable names are automatic.
+            --deploy-values="$DEPLOY_VALUES"
+
 ```
 
 All optional inputs are supplied above. If omitted:
 
 - `--dockerfile`: uses `Dockerfile` instead of `myapp.Dockerfile`.
-- `--tag`: uses `latest` instead of the commit hash.
-- `--compose-file`: uses `compose.yml` instead of `dev.compose.yml`.
 - `--build-env-file`: no public build file is read; explicit build values still apply.
 - `--build-values`: no overrides; the public build file's values still apply.
 - `--build-secret-env`: no private build file is mounted; our Dockerfile requires it.
+- `--tag`: uses `latest` instead of the commit hash.
+- `--compose-file`: uses `compose.yml` instead of `dev.compose.yml`.
 - `--deploy-env-file`: no public deployment file is read; explicit deployment values still apply.
 - `--deploy-values`: no overrides; the deployment file's values still apply. Our example would need another source for `APP_IMAGE`.
 
@@ -489,56 +518,74 @@ jobs:
             # Supply the step's current directory as the Docker build context.
             # Here it contains the main/master commit's files placed by actions/checkout.
             --source=.
+
             # Select myapp.Dockerfile relative to --source.
             # Daggerer builds the image using this file's instructions; staging selects it too.
             --dockerfile=myapp.Dockerfile
+
             # Public build defaults from the application checkout.
             --build-env-file=build.env
+
             # Our hardcoded production override takes precedence over build.env.
             --build-values="$BUILD_VALUES"
+
             # The same runner VPS file used by staging, containing our dependency PAT.
             --build-secret-env="file://$HOME/secrets-actions/$APPLICATION_NAME/private.env"
+
             # Same registry and namespace used by staging.
             --registry=registry.example.com/team
+
             # Produces registry.example.com/team/my-app:latest.
             --app-name="$APPLICATION_NAME"
+
             # Publish and deploy latest.
             # This controls the image published and pulled, not variables in prod.compose.yml.
             --tag=latest
+
             # Registry account used for publish and deployment.
             --registry-username=registry-user
+
             # Registry password file on the runner VPS, used to publish and log in on the production `ssh` target.
             --registry-password="file://$HOME/secrets-actions/$APPLICATION_NAME/registry_password"
+
             # Production `ssh` target on the production VPS, using the deploy user.
             --ssh-target=deploy@prod.example.com
+
             # Production `ssh` key whose public key is authorized for the production `ssh` target user.
             --ssh-key="file://$HOME/secrets-actions/$APPLICATION_NAME/production_ssh_key"
+
             # `known_hosts` file containing the verified host key for the production `ssh` target.
             --known-hosts="file://$HOME/secrets-actions/$APPLICATION_NAME/production_known_hosts"
+
+            # Run docker login, docker pull, and docker compose -f prod.compose.yml up.
+            --deploy-container-runtime=docker
+
             # Relative to the production `ssh` target user's home, not the runner's home.
             # Selects /home/deploy/prod/my-app on the production `ssh` target.
             --deploy-directory="prod/$APPLICATION_NAME"
-            # Public process env defaults from our checkout's deploy.env; parsed by Dagger.
-            # Separate from prod.env read by prod.compose.yml on the production `ssh` target.
-            --deploy-env-file=deploy.env
-            # Forward our APP_IMAGE to docker compose -f prod.compose.yml up.
-            # Overrides matching deploy.env entries; no application variable names are automatic.
-            --deploy-values="$DEPLOY_VALUES"
+
             # Select prod.compose.yml inside --deploy-directory.
             # Its env_file and secrets entries select production's prod.env and secrets/app_token.
             --compose-file=prod.compose.yml
-            # Run docker login, docker pull, and docker compose -f prod.compose.yml up.
-            --deploy-container-runtime=docker
+
+            # Public process env defaults from our checkout's deploy.env; parsed by Dagger.
+            # Separate from prod.env read by prod.compose.yml on the production `ssh` target.
+            --deploy-env-file=deploy.env
+
+            # Forward our APP_IMAGE to docker compose -f prod.compose.yml up.
+            # Overrides matching deploy.env entries; no application variable names are automatic.
+            --deploy-values="$DEPLOY_VALUES"
+
 ```
 
 All optional inputs are supplied above. If omitted:
 
 - `--dockerfile`: uses `Dockerfile` instead of `myapp.Dockerfile`.
-- `--tag`: uses `latest`, the same tag selected here.
-- `--compose-file`: uses `compose.yml` instead of `prod.compose.yml`.
 - `--build-env-file`: no public build file is read; explicit build values still apply.
 - `--build-values`: no overrides; the public build file's values still apply.
 - `--build-secret-env`: no private build file is mounted; our Dockerfile requires it.
+- `--tag`: uses `latest`, the same tag selected here.
+- `--compose-file`: uses `compose.yml` instead of `prod.compose.yml`.
 - `--deploy-env-file`: no public deployment file is read; explicit deployment values still apply.
 - `--deploy-values`: no overrides; the deployment file's values still apply. Our example would need another source for `APP_IMAGE`.
 
@@ -613,14 +660,19 @@ The same inputs also work with `build-only`, without publishing or deploying:
       # Supply the step's current directory as the Docker build context.
       # This example assumes actions/checkout has placed our application's files there.
       --source=.
+
       # Select our application's myapp.Dockerfile relative to --source, as both release workflows do.
       --dockerfile=myapp.Dockerfile
+
       # Dagger parses our caller-selected public file into Dockerfile build arguments.
       --build-env-file=build.env
+
       # Explicit public overrides from the runner step; FOO overrides build.env's hello.
       --build-values="$BUILD_VALUES"
+
       # Our private build file containing GITHUB_PAT; its filename and path are our choice.
       --build-secret-env=file://$HOME/secrets-actions/my-app/private.env
+
 ```
 
 All optional build inputs are supplied above. If omitted:
@@ -650,14 +702,18 @@ Alternative credential inputs for our release workflows:
     BUILD_PRIVATE_ENV: ${{ secrets.BUILD_PRIVATE_ENV }}
   run: |
     dagger -W github.com/ninesl/daggerer@master api call release
-      # Load the registry password from the step environment as a Dagger Secret.
-      --registry-password=env://REGISTRY_PASSWORD
-      # env:// loads the step's staging `ssh` key as a Dagger Secret.
-      --ssh-key=env://SSH_KEY
-      # Strict host-key verification for the staging `ssh` target.
-      --known-hosts=env://KNOWN_HOSTS
       # Mount our private dotenv contents as the build_env secret.
       --build-secret-env=env://BUILD_PRIVATE_ENV
+
+      # Load the registry password from the step environment as a Dagger Secret.
+      --registry-password=env://REGISTRY_PASSWORD
+
+      # env:// loads the step's staging `ssh` key as a Dagger Secret.
+      --ssh-key=env://SSH_KEY
+
+      # Strict host-key verification for the staging `ssh` target.
+      --known-hosts=env://KNOWN_HOSTS
+
 ```
 
 Arguments absent from this credential excerpt remain as shown in the full staging or production workflow; their defaults and optional-input behavior are described below those workflows.
