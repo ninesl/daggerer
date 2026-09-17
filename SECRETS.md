@@ -105,7 +105,7 @@ Within each pair, Daggerer merges in low-to-high precedence order:
 2. Load the literal dotenv text supplied by `--build-values` or `--deploy-values` into an in-memory file. These values take precedence and overwrite matching names from the mounted `.env`.
 3. Keep names that occur in only one source.
 
-Our [staging workflow](README.md#staging-workflow) overwrites `APP_ENV=DEV` with `APP_ENV=STAGING`; the [production workflow](README.md#production-workflow) overwrites it with `APP_ENV=PRODUCTION`. Each also adds its public `APP_IMAGE` through `--deploy-values`. These are application choices, not Daggerer defaults.
+Our [staging workflow](README.md#staging-workflow) overwrites `APP_ENV=DEV` with `APP_ENV=STAGING`; the [production workflow](README.md#production-workflow) overwrites it with `APP_ENV=PRODUCTION`. Each also adds its public `APP_IMAGE` through `--deploy-values`. These are application choices, not Daggerer requirements.
 
 Only public inputs participate in this overwrite model. Secrets never overwrite public values, and public values never overwrite secrets. Daggerer rejects name collisions instead:
 
