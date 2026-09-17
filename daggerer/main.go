@@ -81,9 +81,6 @@ func (m *Daggerer) Build(
 	if err != nil {
 		return "", err
 	}
-	if err := m.checkRegistryAccess(ctx, registryHost(registry), registryUsername, registryPassword); err != nil {
-		return "", err
-	}
 	image := registry + "/" + appName + ":" + tag
 	published, err := container.
 		WithRegistryAuth(registryHost(registry), registryUsername, registryPassword).
@@ -358,26 +355,6 @@ func (m *Daggerer) deployComposeImage(p deployComposeParams) error {
 func runSSH(ctx context.Context, client *dagger.Container, target, command string, opts ...dagger.ContainerWithExecOpts) error {
 	_, err := client.WithExec(sshExec(target, command), opts...).Sync(ctx)
 	return err
-}
-
-func (m *Daggerer) checkRegistryAccess(
-	ctx context.Context,
-	registry, username string,
-	password *dagger.Secret,
-) error {
-	// Internal authentication helper; independent of the deployment runtime.
-	_, err := dag.Container().From("docker:27.5.1-cli").
-		WithEnvVariable("DAGGERER_EXEC_NONCE", rand.Text()).
-		WithMountedSecret(registryPasswordMountPath, password).
-		WithExec(
-			[]string{"docker", "login", registry, "-u", username, "--password-stdin"},
-			dagger.ContainerWithExecOpts{RedirectStdin: registryPasswordMountPath},
-		).
-		Sync(ctx)
-	if err != nil {
-		return fmt.Errorf("registry unavailable or authentication failed: %s: %w", registry, err)
-	}
-	return nil
 }
 
 func sshExec(target, command string) []string {
