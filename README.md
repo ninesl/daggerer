@@ -173,7 +173,7 @@ jobs:
             --registry-password="file://$HOME/secrets/$APPLICATION_NAME/registry_password"
 
             # Dagger's SSH container reaches its own Podman host through this name.
-            --ssh-target=runner@host.containers.internal
+            --ssh-target="runner@host.containers.internal"
 
             # Omitted --ssh-target-port defaults to 22. Set it for a nonstandard SSH port.
 
@@ -349,7 +349,7 @@ jobs:
             --registry-password="file://$HOME/secrets/$APPLICATION_NAME/registry_password" \
 
             # Connect from Dagger's SSH container back to its own Podman host.
-            --ssh-target=stageuser@host.containers.internal \
+            --ssh-target="stageuser@host.containers.internal" \
             --ssh-key="file://$HOME/secrets/$APPLICATION_NAME/staging_ssh_key" \
             --known-hosts="file://$HOME/secrets/$APPLICATION_NAME/staging_known_hosts" \
 
@@ -450,7 +450,7 @@ jobs:
             --registry-password="file://$HOME/secrets/$APPLICATION_NAME/registry_password" \
 
             # Connect to the production VPS with production credentials.
-            --ssh-target=deployuser@prod.example.com \
+            --ssh-target="deployuser@prod.example.com" \
             --ssh-key="file://$HOME/secrets/$APPLICATION_NAME/production_ssh_key" \
             --known-hosts="file://$HOME/secrets/$APPLICATION_NAME/production_known_hosts" \
 
