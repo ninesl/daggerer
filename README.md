@@ -86,13 +86,7 @@ These filesystem paths become Daggerer's API inputs.
 
 See [Deployment Credentials](SECRETS.md#deployment-credentials) for the registry password, `ssh` key, and known-hosts files used below.
 
-The example's Podman-backed Dagger Engine runs `ssh` in a container, so it reaches the runner VPS through Podman's host name:
-
-```bash
---ssh-target=runner@host.containers.internal
-```
-
-`localhost` would be the Dagger container, while the VPS public address may reject traffic routed back to itself. The `known_hosts` entry must use `host.containers.internal` and the selected port. See [Runner VPS Host Key](SECRETS.md#runner-vps-host-key).
+Dagger runs `ssh` in a container, so our Podman runner examples use `runner@host.containers.internal`; `known_hosts` must contain that host and the selected port.
 
 ```bash
 # VPS filesystem

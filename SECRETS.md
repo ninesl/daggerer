@@ -33,31 +33,6 @@ These inputs accept either `file://` or `env://`. [README.md](README.md) uses ru
 
 The build and deployment files below intentionally require `file://`; do not pass their values through public command arguments.
 
-### Runner VPS Host Key
-
-Our runner VPS examples use Podman's `host.containers.internal` from the Dagger container. Scan the VPS's local SSH daemon, then label its key with that target name.
-
-For a nonstandard port such as 1337, OpenSSH requires a bracketed `host:port` token:
-
-```bash
-ssh-keyscan -p 1337 127.0.0.1 2>/dev/null | \
-  awk 'NF >= 3 { print "[host.containers.internal]:1337 " $2 " " $3 }' \
-  > "$HOME/secrets/my-app/known_hosts"
-chmod 600 "$HOME/secrets/my-app/known_hosts"
-```
-
-Port 22 instead uses the unbracketed host token `host.containers.internal`.
-
-Pass the same port and target to Daggerer:
-
-```bash
---ssh-target=runner@host.containers.internal \
---ssh-target-port=1337 \
---known-hosts="file://$HOME/secrets/my-app/known_hosts"
-```
-
-Verify the scanned fingerprint against the VPS SSH host-key fingerprint.
-
 ## Dockerfile Build Secrets
 
 `with-build-secret` maps one runner-local file to a BuildKit secret ID. `--id` chooses that ID and `--secret` selects the file:
@@ -130,14 +105,7 @@ Within each pair, Daggerer merges in low-to-high precedence order:
 2. Load the literal dotenv text supplied by `--build-values` or `--deploy-values` into an in-memory file. These values take precedence and overwrite matching names from the mounted `.env`.
 3. Keep names that occur in only one source.
 
-Our [staging workflow](README.md#staging-workflow) and [production workflow](README.md#production-workflow) take advantage of this behavior. These are application choices in our example, not Daggerer defaults:
-
-| Workflow | Checked-out `.env` | In-memory `--deploy-values` | Final public value |
-| --- | --- | --- | --- |
-| Staging | `APP_ENV=DEV` | `APP_ENV=STAGING` | `APP_ENV=STAGING` |
-| Production | `APP_ENV=DEV` | `APP_ENV=PRODUCTION` | `APP_ENV=PRODUCTION` |
-
-Each workflow also adds its public `APP_IMAGE` through `--deploy-values`.
+Our [staging workflow](README.md#staging-workflow) overwrites `APP_ENV=DEV` with `APP_ENV=STAGING`; the [production workflow](README.md#production-workflow) overwrites it with `APP_ENV=PRODUCTION`. Each also adds its public `APP_IMAGE` through `--deploy-values`. These are application choices, not Daggerer defaults.
 
 Only public inputs participate in this overwrite model. Secrets never overwrite public values, and public values never overwrite secrets. Daggerer rejects name collisions instead:
 
