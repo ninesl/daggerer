@@ -31,6 +31,7 @@ The examples describe our sample application, `my-app`, using GitHub Actions on 
 - [Quick Reference](#quick-reference)
 - [Prerequisites](#prerequisites)
 - [Quick Start](#quick-start)
+- [Same-Host SSH Targets](#same-host-ssh-targets)
 - [Staging And Production](#staging-and-production)
 - [Secrets](SECRETS.md)
 
@@ -85,6 +86,20 @@ The following layout is **not** required by Daggerer, or really recommended. My 
 These filesystem paths become Daggerer's API inputs.
 
 See [Deployment Credentials](SECRETS.md#deployment-credentials) for the registry password, `ssh` key, and known-hosts files used below.
+
+### Same-Host SSH Targets
+
+Daggerer runs its `ssh` client inside a Dagger container. Consequently, `localhost` refers to that temporary container, not to the self-hosted runner. The same-VPS runner examples below must not target their own public address because that route can be refused without NAT reflection or hairpin routing.
+
+When a Podman-backed Dagger Engine deploys back to its own runner VPS, use Podman's container-to-host name:
+
+```bash
+--ssh-target=runneruser@host.containers.internal
+```
+
+`host.containers.internal` resolves from the Dagger container to the Podman host gateway. A different Dagger Engine setup must provide an equivalent hostname or private address that is reachable from Dagger workload containers. This rule applies to target resolution even though the selected `docker` or `podman` deployment runtime executes on the SSH host.
+
+The host token in `--known-hosts` must match this target name and the selected `--ssh-target-port`. See [Same-Host Known Hosts](SECRETS.md#same-host-known-hosts) for setup commands.
 
 ```bash
 # VPS filesystem
@@ -164,8 +179,8 @@ jobs:
             # --registry-password loads the runner-local file as a Dagger Secret.
             --registry-password="file://$HOME/secrets/$APPLICATION_NAME/registry_password"
 
-            # --ssh-target uses the runner user on the same VPS as the self-hosted runner.
-            --ssh-target=runner@runner.example.com
+            # Dagger's SSH container reaches its own Podman host through this name.
+            --ssh-target=runner@host.containers.internal
 
             # Omitted --ssh-target-port defaults to 22. Set it for a nonstandard SSH port.
 
@@ -340,8 +355,8 @@ jobs:
             --registry-username=registry-user \
             --registry-password="file://$HOME/secrets/$APPLICATION_NAME/registry_password" \
 
-            # Connect back to the runner VPS with staging credentials.
-            --ssh-target=stageuser@runner.example.com \
+            # Connect from Dagger's SSH container back to its own Podman host.
+            --ssh-target=stageuser@host.containers.internal \
             --ssh-key="file://$HOME/secrets/$APPLICATION_NAME/staging_ssh_key" \
             --known-hosts="file://$HOME/secrets/$APPLICATION_NAME/staging_known_hosts" \
 

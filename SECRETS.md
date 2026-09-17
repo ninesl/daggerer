@@ -33,6 +33,38 @@ These inputs accept either `file://` or `env://`. [README.md](README.md) uses ru
 
 The build and deployment files below intentionally require `file://`; do not pass their values through public command arguments.
 
+### Same-Host Known Hosts
+
+For a Podman-backed Dagger Engine deploying to its own runner VPS, [`--ssh-target`](README.md#same-host-ssh-targets) uses `host.containers.internal`. Generate the host key from the local SSH daemon, but label it with the hostname that Dagger's SSH container will use.
+
+For default SSH port 22:
+
+```bash
+ssh-keyscan -p 22 127.0.0.1 2>/dev/null | \
+  awk 'NF >= 3 { print "host.containers.internal " $2 " " $3 }' \
+  > "$HOME/secrets/my-app/known_hosts"
+chmod 600 "$HOME/secrets/my-app/known_hosts"
+```
+
+For a nonstandard port such as 1337, OpenSSH requires the bracketed `host:port` token:
+
+```bash
+ssh-keyscan -p 1337 127.0.0.1 2>/dev/null | \
+  awk 'NF >= 3 { print "[host.containers.internal]:1337 " $2 " " $3 }' \
+  > "$HOME/secrets/my-app/known_hosts"
+chmod 600 "$HOME/secrets/my-app/known_hosts"
+```
+
+Use the same port in the workflow:
+
+```bash
+--ssh-target=runner@host.containers.internal \
+--ssh-target-port=1337 \
+--known-hosts="file://$HOME/secrets/my-app/known_hosts"
+```
+
+Verify the scanned key fingerprint against the VPS SSH host-key fingerprint before relying on the file. Changing `--ssh-target` from a public hostname to `host.containers.internal` without relabeling `known_hosts` causes strict host checking to reject the connection.
+
 ## Dockerfile Build Secrets
 
 `with-build-secret` maps one runner-local file to a BuildKit secret ID. `--id` chooses that ID and `--secret` selects the file:
