@@ -50,7 +50,7 @@ Daggerer needs the file selected by `--dockerfile` (`Dockerfile` by default) to 
 
 `build-dockerfile` and `build` **DO NOT** require `docker` or `podman`, they use the self-hosted runner's Dagger Engine directly.
 
-> [TODO: An external Dagger Engine target API is planned](link to dagger.io docs on how a dagger cli can connect to an external (like remote) dagger engine)
+The Dagger CLI can also [select a remote Dagger Engine](https://docs.dagger.io/reference/cli#dagger-engine) with `--engine` or `DAGGER_ENGINE`, including direct connections over `ssh://`, `tcp://`, and `tls://`.
 
 Create a self-hosted runner for your application's repository at `https://github.com/<owner>/<repo>/settings/actions/runners/new`. 
 
