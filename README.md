@@ -465,5 +465,33 @@ jobs:
 
 Any failed registry, build, publish, `ssh`, pull, `podman compose`, or `docker compose` step stops its release. Daggerer only uses the files and values passed by each workflow.
 
+### Self-hosted runner with a co-located registry
+
+If a rootless Podman Dagger Engine and OCI registry share a host, map the registry hostname to the Podman host. Without this mapping, `Container.Publish` may fail with `connection refused`.
+
+```bash
+podman run -d \
+  --name dagger-engine \
+  --privileged \
+  --network pasta \
+  --add-host registry.example.com:host-gateway \
+  --restart always \
+  --volume dagger-engine:/var/lib/dagger \
+  registry.dagger.io/engine:v1.0.0-beta.13
+```
+
+Select that engine directly in the workflow:
+
+```bash
+dagger \
+  --engine=container+podman://dagger-engine \
+  -W github.com/ninesl/daggerer@master \
+  api call release ...
+```
+
+Keep the public registry hostname for `--registry` so deployment hosts pull the same image. The mapping is only needed while the registry and Dagger Engine share a host.
+
+I'm unsure if this behavior is the same with `docker`, I'm assuming yes as this is dagger specific-behavior.
+
 [dagger-build]: https://docs.dagger.io/reference/api/directory#dockerBuild
 [dagger-container]: https://docs.dagger.io/reference/api/container
