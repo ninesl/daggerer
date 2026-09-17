@@ -31,7 +31,6 @@ The examples describe our sample application, `my-app`, using GitHub Actions on 
 - [Quick Reference](#quick-reference)
 - [Prerequisites](#prerequisites)
 - [Quick Start](#quick-start)
-- [Same-Host SSH Targets](#same-host-ssh-targets)
 - [Staging And Production](#staging-and-production)
 - [Secrets](SECRETS.md)
 
@@ -87,19 +86,13 @@ These filesystem paths become Daggerer's API inputs.
 
 See [Deployment Credentials](SECRETS.md#deployment-credentials) for the registry password, `ssh` key, and known-hosts files used below.
 
-### Same-Host SSH Targets
-
-Daggerer runs its `ssh` client inside a Dagger container. Consequently, `localhost` refers to that temporary container, not to the self-hosted runner. The same-VPS runner examples below must not target their own public address because that route can be refused without NAT reflection or hairpin routing.
-
-When a Podman-backed Dagger Engine deploys back to its own runner VPS, use Podman's container-to-host name:
+The example's Podman-backed Dagger Engine runs `ssh` in a container, so it reaches the runner VPS through Podman's host name:
 
 ```bash
---ssh-target=runneruser@host.containers.internal
+--ssh-target=runner@host.containers.internal
 ```
 
-`host.containers.internal` resolves from the Dagger container to the Podman host gateway. A different Dagger Engine setup must provide an equivalent hostname or private address that is reachable from Dagger workload containers. This rule applies to target resolution even though the selected `docker` or `podman` deployment runtime executes on the SSH host.
-
-The host token in `--known-hosts` must match this target name and the selected `--ssh-target-port`. See [Same-Host Known Hosts](SECRETS.md#same-host-known-hosts) for setup commands.
+`localhost` would be the Dagger container, while the VPS public address may reject traffic routed back to itself. The `known_hosts` entry must use `host.containers.internal` and the selected port. See [Runner VPS Host Key](SECRETS.md#runner-vps-host-key).
 
 ```bash
 # VPS filesystem
