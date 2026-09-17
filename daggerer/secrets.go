@@ -122,19 +122,19 @@ func validateSecretFiles(ctx context.Context, scope string, public []dagger.Buil
 	return nil
 }
 
-func runSSHWithDeploymentSecrets(ctx context.Context, client *dagger.Container, target, command string, secret *dagger.Secret) error {
+func runSSHWithDeploymentSecrets(ctx context.Context, client *dagger.Container, target string, port int, command string, secret *dagger.Secret) error {
 	var sources []string
 	if secret != nil {
 		client = client.WithMountedSecret(privateEnvPath, secret)
 		sources = append(sources, privateEnvPath)
 	}
 	if len(sources) == 0 {
-		return runSSH(ctx, client, target, command)
+		return runSSH(ctx, client, target, port, command)
 	}
 
 	// exportCommand writes a shell script to stdout; the pipeline's "$@" is the
 	// SSH process, so that script becomes stdin for the remote `sh -s` command.
-	args := append([]string{"env", "-i", "sh", "-c", exportCommand(sources), "sh"}, sshExec(target, command)...)
+	args := append([]string{"env", "-i", "sh", "-c", exportCommand(sources), "sh"}, sshExec(target, port, command)...)
 	_, err := client.WithExec(args).Sync(ctx)
 	return err
 }

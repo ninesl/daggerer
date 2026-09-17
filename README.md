@@ -6,7 +6,7 @@ Daggerer exposes four API functions:
 
 - `build-dockerfile` builds the file selected by `--dockerfile` (`Dockerfile` by default) with [`Directory.DockerBuild`][dagger-build] and returns a cached [`Container`][dagger-container].
 - `build` validates registry authentication, calls `build-dockerfile`, applies [`WithRegistryAuth`](https://docs.dagger.io/reference/api/container#withRegistryAuth), and [`Publish`](https://docs.dagger.io/reference/api/container#publish) publishes the image.
-- `deploy` connects to `--ssh-target`, pulls an existing image, and uses the runtime selected by `--deploy-container-runtime` to run `--compose-file` (`compose.yml` by default).
+- `deploy` connects to `--ssh-target` on `--ssh-target-port` (`22` by default), pulls an existing image, and uses the runtime selected by `--deploy-container-runtime` to run `--compose-file` (`compose.yml` by default).
 - `release` calls `build` and then `deploy` with the same `--registry`, `--app-name`, and `--tag`, simplifying the top-level API.
 
 ```bash
@@ -166,6 +166,8 @@ jobs:
 
             # --ssh-target uses the runner user on the same VPS as the self-hosted runner.
             --ssh-target=runner@runner.example.com
+
+            # Omitted --ssh-target-port defaults to 22. Set it for a nonstandard SSH port.
 
             # --ssh-key loads the key preauthorized for the --ssh-target user.
             --ssh-key="file://$HOME/secrets/$APPLICATION_NAME/ssh_key"

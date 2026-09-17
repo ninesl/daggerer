@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"dagger/daggerer/internal/dagger"
@@ -105,6 +106,9 @@ func (m *Daggerer) Release(
 	tag string,
 	// ssh deploy destination target in user@host form
 	sshTarget string,
+	// SSH destination port.
+	// +default=22
+	sshTargetPort int,
 	sshKey *dagger.Secret,
 	knownHosts *dagger.Secret,
 	// Remote directory relative to the SSH user's home
@@ -146,7 +150,7 @@ func (m *Daggerer) Release(
 		return err
 	}
 	return m.deployComposeImage(deployComposeParams{
-		ctx: ctx, sshTarget: sshTarget, deployDirectory: deployDirectory,
+		ctx: ctx, sshTarget: sshTarget, sshTargetPort: sshTargetPort, deployDirectory: deployDirectory,
 		image: registry + "/" + appName + ":" + tag, composeRuntime: deployContainerRuntime, composeFile: composeFile,
 		registry: registryHost(registry), registryUsername: registryUsername,
 		sshKey: sshKey, knownHosts: knownHosts, registryPassword: registryPassword,
@@ -166,6 +170,9 @@ func (m *Daggerer) Deploy(
 	tag string,
 	// ssh destination: user@host
 	sshTarget string,
+	// SSH destination port.
+	// +default=22
+	sshTargetPort int,
 	sshKey *dagger.Secret,
 	knownHosts *dagger.Secret,
 	// Remote directory relative to the SSH user's home.
@@ -195,7 +202,7 @@ func (m *Daggerer) Deploy(
 		return err
 	}
 	return m.deployComposeImage(deployComposeParams{
-		ctx: ctx, sshTarget: sshTarget, deployDirectory: deployDirectory,
+		ctx: ctx, sshTarget: sshTarget, sshTargetPort: sshTargetPort, deployDirectory: deployDirectory,
 		image: image, composeRuntime: deployContainerRuntime, composeFile: composeFile,
 		registry: registryHost(registry), registryUsername: registryUsername,
 		sshKey: sshKey, knownHosts: knownHosts, registryPassword: registryPassword,
@@ -294,6 +301,7 @@ func envFileArguments(ctx context.Context, env *dagger.EnvFile) ([]dagger.BuildA
 type deployComposeParams struct {
 	ctx                                                                             context.Context
 	sshTarget                                                                       string
+	sshTargetPort                                                                   int
 	deployDirectory, composeRuntime, composeFile, registry, registryUsername, image string
 	sshKey, knownHosts, registryPassword, deploySecretEnvFile                       *dagger.Secret
 	deployEnv                                                                       []dagger.BuildArg
@@ -332,34 +340,35 @@ func (m *Daggerer) deployComposeImage(p deployComposeParams) error {
 		WithMountedSecret(knownHostsMountPath, p.knownHosts).
 		WithMountedSecret(registryPasswordMountPath, p.registryPassword)
 
-	if err := runSSH(p.ctx, sshClient, p.sshTarget,
+	if err := runSSH(p.ctx, sshClient, p.sshTarget, p.sshTargetPort,
 		fmt.Sprintf("cd %s && test -f %s", remoteDirectory, shellQuote(p.composeFile))); err != nil {
 		return fmt.Errorf("compose file unavailable: %w", err)
 	}
-	if err := runSSH(p.ctx, sshClient, p.sshTarget,
+	if err := runSSH(p.ctx, sshClient, p.sshTarget, p.sshTargetPort,
 		shellCommand(p.composeRuntime, "login", p.registry, "-u", p.registryUsername, "--password-stdin"),
 		dagger.ContainerWithExecOpts{RedirectStdin: registryPasswordMountPath}); err != nil {
 		return fmt.Errorf("registry unavailable or authentication failed: %w", err)
 	}
 
-	if err := runSSH(p.ctx, sshClient, p.sshTarget, shellCommand(p.composeRuntime, "pull", p.image)); err != nil {
+	if err := runSSH(p.ctx, sshClient, p.sshTarget, p.sshTargetPort, shellCommand(p.composeRuntime, "pull", p.image)); err != nil {
 		return fmt.Errorf("image unavailable: %s: %w", p.image, err)
 	}
 
-	if err := runSSHWithDeploymentSecrets(p.ctx, sshClient, p.sshTarget, runCompose, p.deploySecretEnvFile); err != nil {
+	if err := runSSHWithDeploymentSecrets(p.ctx, sshClient, p.sshTarget, p.sshTargetPort, runCompose, p.deploySecretEnvFile); err != nil {
 		return fmt.Errorf("compose deployment failed: %w", err)
 	}
 	return nil
 }
 
-func runSSH(ctx context.Context, client *dagger.Container, target, command string, opts ...dagger.ContainerWithExecOpts) error {
-	_, err := client.WithExec(sshExec(target, command), opts...).Sync(ctx)
+func runSSH(ctx context.Context, client *dagger.Container, target string, port int, command string, opts ...dagger.ContainerWithExecOpts) error {
+	_, err := client.WithExec(sshExec(target, port, command), opts...).Sync(ctx)
 	return err
 }
 
-func sshExec(target, command string) []string {
+func sshExec(target string, port int, command string) []string {
 	return []string{
 		"ssh",
+		"-p", strconv.Itoa(port),
 		"-o", "BatchMode=yes",
 		"-o", "IdentitiesOnly=yes",
 		"-o", "StrictHostKeyChecking=yes",

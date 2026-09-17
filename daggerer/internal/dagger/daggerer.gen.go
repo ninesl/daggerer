@@ -127,6 +127,10 @@ type DaggererDeployOpts struct {
 
 	// Default: "latest"
 	Tag string
+	// SSH destination port.
+	//
+	// Default: 22
+	SSHTargetPort int
 	// Public dotenv file on the caller, forwarded to the remote `compose` process. Never supply credentials here.
 	DeployEnvFile *File
 	// Public dotenv text; overrides deployEnvFile values. No application variable names are implied.
@@ -151,6 +155,10 @@ func (r *Daggerer) Deploy(ctx context.Context, registry string, appName string, 
 		// `tag` optional argument
 		if !querybuilder.IsZeroValue(opts[i].Tag) {
 			q = q.Arg("tag", opts[i].Tag)
+		}
+		// `sshTargetPort` optional argument
+		if !querybuilder.IsZeroValue(opts[i].SSHTargetPort) {
+			q = q.Arg("sshTargetPort", opts[i].SSHTargetPort)
 		}
 		// `deployEnvFile` optional argument
 		if !querybuilder.IsZeroValue(opts[i].DeployEnvFile) {
@@ -237,6 +245,10 @@ type DaggererReleaseOpts struct {
 	//
 	// Default: "latest"
 	Tag string
+	// SSH destination port.
+	//
+	// Default: 22
+	SSHTargetPort int
 	// Public dotenv file on the caller, forwarded to the remote `compose` process. Never supply credentials here.
 	DeployEnvFile *File
 	// Public dotenv text; overrides deployEnvFile values. No application variable names are implied.
@@ -270,6 +282,10 @@ func (r *Daggerer) Release(ctx context.Context, source *Directory, registry stri
 		// `tag` optional argument
 		if !querybuilder.IsZeroValue(opts[i].Tag) {
 			q = q.Arg("tag", opts[i].Tag)
+		}
+		// `sshTargetPort` optional argument
+		if !querybuilder.IsZeroValue(opts[i].SSHTargetPort) {
+			q = q.Arg("sshTargetPort", opts[i].SSHTargetPort)
 		}
 		// `deployEnvFile` optional argument
 		if !querybuilder.IsZeroValue(opts[i].DeployEnvFile) {

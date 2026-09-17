@@ -27,7 +27,7 @@ The release workflows use three Dagger Secret inputs for infrastructure access:
 
 - `--registry-password` authenticates both the image publish and registry login on `--ssh-target`
 - `--ssh-key` authenticates the `ssh` user selected by `--ssh-target`
-- `--known-hosts` supplies the verified host key used for strict `ssh` host checking
+- `--known-hosts` supplies the verified host key used for strict `ssh` host checking; its host entry must match `--ssh-target` and `--ssh-target-port` (`22` by default)
 
 These inputs accept either `file://` or `env://`. [README.md](README.md) uses runner-local `file://` paths so the source of each credential is visible beside the API call.
 
