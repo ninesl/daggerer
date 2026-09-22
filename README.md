@@ -53,31 +53,29 @@ Dagger Engine
 
 ## Prerequisites
 
-`deploy` and `release` require either:
+[Install the Dagger CLI](https://docs.dagger.io/getting-started/install) for the same `$USER` as your runner service. 
 
-- [`docker`](https://docs.docker.com/engine/install/) and [`docker compose`](https://docs.docker.com/compose/install/linux/) 
+Daggerer was built with Dagger `v1.0.0-beta.13`; run `dagger version` as the user to verify access to the CLI and Dagger Engine.
 
-or 
+`deploy` and `release` require either [`docker`](https://docs.docker.com/engine/install/) and [`docker compose`](https://docs.docker.com/compose/install/linux/) or [`podman`](https://podman.io/docs/installation) and [`podman compose`](https://docs.podman.io/en/latest/markdown/podman-compose.1.html) 
 
-- [`podman`](https://podman.io/docs/installation) and [`podman compose`](https://docs.podman.io/en/latest/markdown/podman-compose.1.html) 
+installed on `--ssh-target`. The target does NOT need to have access to the Dagger Engine for `compose up` deployment, but it will need access to the OCI registry we upload our image to.
 
-installed on `--ssh-target`. This does NOT need to match Dagger's runtime; Dagger only needs to build and publish an OCI image.
+Target our build file with `--dockerfile` (`Dockerfile` by default) to build the image.
 
-Daggerer needs the file selected by `--dockerfile` (`Dockerfile` by default) to build the image.
-
-`build-dockerfile` and `build` **DO NOT** require `docker` or `podman`, they use the self-hosted runner's Dagger Engine directly.
+`build-dockerfile` and `build` **DO NOT** require `docker` or `podman`, they use the self-hosted runner's Dagger Engine directly for building and publishing to the target OCI registry.
 
 The Dagger CLI can also [select a remote Dagger Engine](https://docs.dagger.io/reference/cli#dagger-engine) with `--engine` or `DAGGER_ENGINE`, including direct connections over `ssh://`, `tcp://`, and `tls://`.
 
 Create a self-hosted runner for your application's repository at `https://github.com/<owner>/<repo>/settings/actions/runners/new`. 
 
-Install and start the runner according to GitHub's instructions. This location is your choice; Daggerer can be run anywhere that has access to the Dagger Engine.
+Install and start the runner according to GitHub's instructions. This location is your choice, Daggerer can be run anywhere that has access to the Dagger Engine.
 
-From the directory where you installed the runner, the GitHub setup instructions use for persistence:
+From the directory where you installed the runner, use these setup command to keep it listening for actions:
 
 ```bash
 # Ran from the runner installation directory
-# The current user (which will use Dagger CLI) is our runner's user
+# The current user (which has access to Dagger CLI) is our runner's user
 sudo ./svc.sh install "$USER"
 # Start the runner
 sudo ./svc.sh start
@@ -85,19 +83,15 @@ sudo ./svc.sh start
 sudo ./svc.sh status
 ```
 
-[Install the Dagger CLI](https://docs.dagger.io/getting-started/install) for the same `$USER` as your runner service. 
-
-Daggerer was built with Dagger `v1.0.0-beta.13`; run `dagger version` as the user to verify access to the CLI and Dagger Engine.
-
 ## Quick Start
 
 This example uses a VPS that serves multiple roles:
-- self-hosted GitHub Actions runner
-- deploy the image via `docker compose`
+- self-hosting the GitHub Actions runner
+- deploying the image via `docker compose`
 
 > The environment is essentially an [AWS EC2](https://aws.amazon.com/ec2/) instance or similar VPS.
 
-The following layout is **not** required by Daggerer, or really recommended. My intention with this example is to highlight how inputs can be sourced from anywhere to be used by Daggerer.
+The following layout is **not** required by Daggerer, or really recommended. My intention with this example is to highlight how inputs can be sourced from anywhere to be used with Daggerer.
 
 These filesystem paths become Daggerer's API inputs.
 
