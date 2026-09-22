@@ -1,4 +1,8 @@
-**Daggerer** builds a `Dockerfile`, publishes its image to an OCI registry, and deploys it over `ssh` with `docker compose` or `podman compose` [using Dagger](https://dagger.io).
+**Daggerer** exposes Dagger API functions to build a `Dockerfile`, publish its image to an OCI registry, deploy image over `ssh` with `docker compose` or `podman compose` [using Dagger](https://dagger.io).
+
+Daggerer allows for external targets for all sources, with support for both [build and deploy secrets](https://docs.dagger.io/reference/api/secret).
+
+Like all things Dagger, Daggerer is intended to be reused and incorporated for other DAGs and repeated across workflows and projects where you want to use the Dagger Engine.
 
 ## Quick Reference
 
@@ -24,28 +28,28 @@ dagger -W github.com/ninesl/daggerer@master api call function --arguments
 
 ## Contents
 
-The examples describe our sample application, `my-app`, using Daggerer via GitHub Actions on a self-hosted runner.
-
-```
-GitHub workflow # uses `daggerer release`
-      |
-self-hosted runner 
-      |
-Dagger engine ----> OCI registry
-                         |
-                         v
-                    VPS over SSH
-                         |
-                    Docker/Podman Compose
-```
-
-> Read through the documentation before adapting an example. The examples favor [grug-brained](https://grugbrain.dev/) development and [locality of behavior](https://htmx.org/essays/locality-of-behaviour/): each workflow passes its choices directly to the Daggerer API.
+> Read through the documentation before adapting an example. The examples favor [grug-brained](https://grugbrain.dev/) development and are explicitly simplified.
 
 - [Quick Reference](#quick-reference)
 - [Prerequisites](#prerequisites)
 - [Quick Start](#quick-start)
 - [Staging And Production](#staging-and-production)
 - [Secrets](SECRETS.md)
+
+The following examples describe our sample application, `my-app`. We are using Daggerer with our GitHub Action workflow on a self-hosted runner. Use this flowchart as our simple mental model:
+
+```bash
+GitHub runner Workflow # uses `daggerer release`
+      |
+Daggerer release
+      |
+[
+1. build image
+2. publish to registry/image:tagged OCI registry
+3. ssh to VPS
+4. from VPS, docker compose up registry/image:tagged
+]
+```
 
 ## Prerequisites
 
