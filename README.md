@@ -41,7 +41,7 @@ The following examples describe our sample application, `my-app`. We are using D
 ```bash
 GitHub runner Workflow # uses `daggerer release`
       |
-Daggerer release
+Dagger Engine
       |
 [
 1. build image
