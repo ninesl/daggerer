@@ -24,7 +24,20 @@ dagger -W github.com/ninesl/daggerer@master api call function --arguments
 
 ## Contents
 
-The examples describe our sample application, `my-app`, using GitHub Actions on a self-hosted runner.
+The examples describe our sample application, `my-app`, using Daggerer via GitHub Actions on a self-hosted runner.
+
+```
+GitHub workflow # uses `daggerer release`
+      |
+self-hosted runner 
+      |
+Dagger engine ----> OCI registry
+                         |
+                         v
+                    VPS over SSH
+                         |
+                    Docker/Podman Compose
+```
 
 > Read through the documentation before adapting an example. The examples favor [grug-brained](https://grugbrain.dev/) development and [locality of behavior](https://htmx.org/essays/locality-of-behaviour/): each workflow passes its choices directly to the Daggerer API.
 
