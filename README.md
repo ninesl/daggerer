@@ -124,6 +124,7 @@ services:
     # missing/empty values fail. APP_IMAGE is unique to our compose.yml and is explicitly
     # passed with --deploy-values below.
     image: ${APP_IMAGE:?APP_IMAGE is required}
+    container_name: my-app
     restart: unless-stopped
     ports:
       - "5000:5000"
@@ -285,6 +286,7 @@ services:
   app:
     # --deploy-values supplies the commit image published by this workflow.
     image: ${APP_IMAGE:?APP_IMAGE is required}
+    container_name: my-app-staging
     restart: unless-stopped
     ports:
       # staging.compose.yml publishes staging on host port 5001.
@@ -389,6 +391,7 @@ services:
   app:
     # --deploy-values supplies the latest image published by this workflow.
     image: ${APP_IMAGE:?APP_IMAGE is required}
+    container_name: my-app-production
     restart: unless-stopped
     ports:
       # production.compose.yml publishes production on host port 5000.
