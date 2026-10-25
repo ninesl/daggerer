@@ -9,5 +9,16 @@ is-module = true
 name = "daggerer"
 
 [modules.daggerer]
-entrypoint = true
 source = "daggerer"
+main = true
+
+[modules.gochecker]
+source = "gochecker"
+
+[sdks.go.scopes.".dagger/modules/gochecker"]
+is-module = true
+name = "gochecker"
+
+[sdks.go.scopes.gochecker]
+is-module = true
+name = "gochecker"

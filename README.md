@@ -55,7 +55,7 @@ Dagger Engine
 
 [Install the Dagger CLI](https://docs.dagger.io/getting-started/install) for the same `$USER` as your runner service. 
 
-Daggerer was built with Dagger `v1.0.0-beta.13`; run `dagger version` as the user to verify access to the CLI and Dagger Engine.
+Daggerer was built with Dagger `v1.0.0-beta.21`; run `dagger version` as the user to verify access to the CLI and Dagger Engine.
 
 `deploy` and `release` require either [`docker`](https://docs.docker.com/engine/install/) and [`docker compose`](https://docs.docker.com/compose/install/linux/) or [`podman`](https://podman.io/docs/installation) and [`podman compose`](https://docs.podman.io/en/latest/markdown/podman-compose.1.html) 
 
