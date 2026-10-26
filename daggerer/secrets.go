@@ -40,13 +40,9 @@ func (m *Daggerer) WithBuildSecret(
 		}
 	}
 
-	next := &Daggerer{
-		BuildSecretIDs:    append([]string(nil), m.BuildSecretIDs...),
-		BuildSecretValues: append([]*dagger.Secret(nil), m.BuildSecretValues...),
-	}
-	next.BuildSecretIDs = append(next.BuildSecretIDs, id)
-	next.BuildSecretValues = append(next.BuildSecretValues, secret)
-	return next, nil
+	m.BuildSecretIDs = append(m.BuildSecretIDs, id)
+	m.BuildSecretValues = append(m.BuildSecretValues, secret)
+	return m, nil
 }
 
 func (m *Daggerer) dockerBuildSecrets(ctx context.Context, public []dagger.BuildArg) ([]*dagger.Secret, error) {

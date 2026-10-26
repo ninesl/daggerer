@@ -15,6 +15,12 @@ type Daggerer struct {
 	BuildSecretIDs []string
 	// +private
 	BuildSecretValues []*dagger.Secret
+	// +private
+	AppCaddyfile *dagger.File
+	// +private
+	RootCaddyfile *dagger.File
+	// +private
+	AppCaddyfileBase string
 }
 
 const (
