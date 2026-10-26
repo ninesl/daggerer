@@ -63,7 +63,7 @@ When the Dockerfile consumes that secret, DockerBuild uses the ID to pair it wit
 
 ### Dagger Build Secret Workaround
 
-Dagger `v1.0.0-beta.13` does not let `Directory.DockerBuild` directly pair an arbitrary ID with a `Secret`.
+Dagger `v1.0.0-beta.21` does not let `Directory.DockerBuild` directly pair an arbitrary ID with a `Secret`.
 
 Daggerer creates the build secret mapping with Dagger's [`Plaintext()` then `SetSecret()` workaround](https://docs.dagger.io/0.21/cookbook/#use-secret-in-dockerfile-build). Native `{id, secret}` support for `DockerBuild` is discussed in [dagger/dagger#7358](https://github.com/dagger/dagger/issues/7358), [dagger/dagger#9437](https://github.com/dagger/dagger/issues/9437), and [dagger/dagger#8058](https://github.com/dagger/dagger/pull/8058). Native support would let Daggerer remove the workaround and its `Plaintext()` call.
 

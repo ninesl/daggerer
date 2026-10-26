@@ -34,6 +34,7 @@ dagger -W github.com/ninesl/daggerer@master api call function --arguments
 - [Prerequisites](#prerequisites)
 - [Quick Start](#quick-start)
 - [Staging And Production](#staging-and-production)
+- [Caddy](#caddy)
 - [Secrets](SECRETS.md)
 
 The following examples describe our sample application, `my-app`. We are using Daggerer with our GitHub Action workflow on a self-hosted runner. Use this flowchart as our simple mental model:
@@ -495,7 +496,7 @@ podman run -d \
   --add-host registry.example.com:host-gateway \
   --restart always \
   --volume dagger-engine:/var/lib/dagger \
-  registry.dagger.io/engine:v1.0.0-beta.13
+  registry.dagger.io/engine:v1.0.0-beta.21
 ```
 
 Select that engine directly in the workflow:
@@ -510,6 +511,40 @@ dagger \
 Keep the public registry hostname for `--registry` so deployment hosts pull the same image. The mapping is only needed while the registry and Dagger Engine share a host.
 
 I'm unsure if this behavior is the same with `docker`, I'm assuming yes as this is dagger specific-behavior.
+
+## Caddy
+
+Daggerer can manage the target's Caddy configuration as part of a release or deploy. Caddy must already be installed on the target: Daggerer never installs it, and a target without the caddy binary aborts the call chain before any build or pull time is spent.
+
+There are two Caddy inputs, and at least one is required:
+
+- `--app-caddyfile` — a site-specific `*.caddy` file. It is deployed verbatim to `/etc/caddy/sites-available/<its exact filename>` and symlinked into `/etc/caddy/sites-enabled` using the same filename. Filenames are never renamed.
+- `--caddyfile` — the root `/etc/caddy/Caddyfile`. It overwrites the shared parent Caddyfile on the target. On a single-service target it is the only input you need; on a multi-site target it bootstraps or updates the config every enabled site hangs off.
+
+> WARNING: `--caddyfile` overwrites the parent Caddyfile shared by every enabled site on the target. Other apps share this file and it is easy to forget. Validation pulls the target's existing `/etc/caddy` tree into a `caddy:2-alpine` Dagger container at identical paths, so a root Caddyfile that would break other enabled sites fails before anything is built or deployed.
+
+### How it runs
+
+Chain `with-caddy` before `release` or `deploy`:
+
+```bash
+dagger api call \
+  with-caddy --app-caddyfile=./horsemoneyball.caddy \
+  release ... # the usual release arguments
+```
+
+1. Before the build/pull: Daggerer verifies caddy exists on the target, pulls its existing `/etc/caddy` tree into a `caddy:2-alpine` container, applies the candidate files inside it with the exact provisioning script used on the target, and runs `caddy validate`. An invalid config, a missing caddy binary, or a root Caddyfile that breaks sibling sites aborts the call.
+2. After `compose up`: the candidate files are streamed to the target, the same provisioning script runs there (`sites-available` copy, `sites-enabled` symlink, root Caddyfile overwrite), a final on-target `caddy validate` runs, then caddy is reloaded (`systemctl reload caddy`, restart fallback). A `~/caddy -> /etc/caddy` convenience symlink is kept in the SSH user's home.
+
+### Standalone apply
+
+To apply Caddy files without a release, use `serve-caddy`. It takes the same file arguments plus the SSH connection arguments and runs the same serving logic:
+
+```bash
+dagger api call \
+  with-caddy --caddyfile=./Caddyfile \
+  serve-caddy --ssh-target=user@host --ssh-key=file://$HOME/secrets/ssh_key --known-hosts=file://$HOME/secrets/known_hosts
+```
 
 [dagger-build]: https://docs.dagger.io/reference/api/directory#dockerBuild
 [dagger-container]: https://docs.dagger.io/reference/api/container

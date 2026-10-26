@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"crypto/rand"
 	"fmt"
 	"strconv"
 	"strings"
@@ -151,12 +150,26 @@ func (m *Daggerer) Release(
 	if err != nil {
 		return err
 	}
+	var sshClient *dagger.Container
+	if m.hasCaddy() {
+		if sshClient, err = newSSHClient(ctx, sshKey, knownHosts); err != nil {
+			return err
+		}
+		// Validation runs before the build so an invalid Caddyfile, a target
+		// without caddy, or a root Caddyfile that would break other enabled
+		// sites aborts before any build or publish time is spent.
+		if err := m.validateCaddy(caddyParams{
+			ctx: ctx, sshClient: sshClient, sshTarget: sshTarget, sshTargetPort: sshTargetPort,
+		}); err != nil {
+			return fmt.Errorf("caddy validation failed: %w", err)
+		}
+	}
 	_, err = m.Build(ctx, source, registry, appName, tag, registryUsername, registryPassword, dockerfile, buildEnvFile, buildValues)
 	if err != nil {
 		return err
 	}
 	return m.deployComposeImage(deployComposeParams{
-		ctx: ctx, sshTarget: sshTarget, sshTargetPort: sshTargetPort, deployDirectory: deployDirectory,
+		ctx: ctx, sshClient: sshClient, sshTarget: sshTarget, sshTargetPort: sshTargetPort, deployDirectory: deployDirectory,
 		image: registry + "/" + appName + ":" + tag, composeRuntime: deployContainerRuntime, composeFile: composeFile,
 		registry: registryHost(registry), registryUsername: registryUsername,
 		sshKey: sshKey, knownHosts: knownHosts, registryPassword: registryPassword,
@@ -207,8 +220,20 @@ func (m *Daggerer) Deploy(
 	if err != nil {
 		return err
 	}
+	var sshClient *dagger.Container
+	if m.hasCaddy() {
+		if sshClient, err = newSSHClient(ctx, sshKey, knownHosts); err != nil {
+			return err
+		}
+		// Same pre-flight as release, before any image pull time is spent.
+		if err := m.validateCaddy(caddyParams{
+			ctx: ctx, sshClient: sshClient, sshTarget: sshTarget, sshTargetPort: sshTargetPort,
+		}); err != nil {
+			return fmt.Errorf("caddy validation failed: %w", err)
+		}
+	}
 	return m.deployComposeImage(deployComposeParams{
-		ctx: ctx, sshTarget: sshTarget, sshTargetPort: sshTargetPort, deployDirectory: deployDirectory,
+		ctx: ctx, sshClient: sshClient, sshTarget: sshTarget, sshTargetPort: sshTargetPort, deployDirectory: deployDirectory,
 		image: image, composeRuntime: deployContainerRuntime, composeFile: composeFile,
 		registry: registryHost(registry), registryUsername: registryUsername,
 		sshKey: sshKey, knownHosts: knownHosts, registryPassword: registryPassword,
@@ -306,6 +331,7 @@ func envFileArguments(ctx context.Context, env *dagger.EnvFile) ([]dagger.BuildA
 
 type deployComposeParams struct {
 	ctx                                                                             context.Context
+	sshClient                                                                       *dagger.Container
 	sshTarget                                                                       string
 	sshTargetPort                                                                   int
 	deployDirectory, composeRuntime, composeFile, registry, registryUsername, image string
@@ -333,18 +359,17 @@ func (m *Daggerer) deployComposeImage(p deployComposeParams) error {
 		command,
 	)
 
-	sshClient, err := dag.Container().From("alpine:3.24.1").
-		WithExec([]string{"apk", "add", "--no-cache", "openssh-client"}).
-		Sync(p.ctx)
-	if err != nil {
-		return fmt.Errorf("sshClient could not be created %w", err)
+	// One shared SSH client per call chain: release and deploy already built
+	// it when with-caddy is configured, so the caddy steps reuse the same client.
+	sshClient := p.sshClient
+	if sshClient == nil {
+		var err error
+		sshClient, err = newSSHClient(p.ctx, p.sshKey, p.knownHosts)
+		if err != nil {
+			return err
+		}
 	}
-
-	// SSH must connect again: cached success cannot revalidate authorization.
-	sshClient = sshClient.WithEnvVariable("DAGGERER_EXEC_NONCE", rand.Text()).
-		WithMountedSecret(sshKeyMountPath, p.sshKey, dagger.ContainerWithMountedSecretOpts{Mode: 0600}).
-		WithMountedSecret(knownHostsMountPath, p.knownHosts).
-		WithMountedSecret(registryPasswordMountPath, p.registryPassword)
+	sshClient = sshClient.WithMountedSecret(registryPasswordMountPath, p.registryPassword)
 
 	if err := runSSH(p.ctx, sshClient, p.sshTarget, p.sshTargetPort,
 		fmt.Sprintf("cd %s && test -f %s", remoteDirectory, shellQuote(p.composeFile))); err != nil {
@@ -362,6 +387,17 @@ func (m *Daggerer) deployComposeImage(p deployComposeParams) error {
 
 	if err := runSSHWithDeploymentSecrets(p.ctx, sshClient, p.sshTarget, p.sshTargetPort, runCompose, p.deploySecretEnvFile); err != nil {
 		return fmt.Errorf("compose deployment failed: %w", err)
+	}
+
+	// Same serving logic as serve-caddy: stream the staged caddy files onto
+	// the target, provision, validate, and reload.
+	if m.hasCaddy() {
+		if err := m.serveCaddy(caddyParams{
+			ctx: p.ctx, sshClient: m.stageCaddyFiles(sshClient),
+			sshTarget: p.sshTarget, sshTargetPort: p.sshTargetPort,
+		}); err != nil {
+			return fmt.Errorf("caddy serve failed: %w", err)
+		}
 	}
 	return nil
 }

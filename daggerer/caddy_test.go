@@ -51,8 +51,8 @@ import /etc/caddy/sites-enabled/*.caddy
 `
 )
 
-// TestWithCaddyRequiresAFile covers the input matrix floor: with-caddy with
-// no files is a configuration error and must never mutate the Daggerer.
+// TestWithCaddyRequiresAFile covers the guard: with-caddy with no files is
+// a configuration error and must never mutate the Daggerer.
 func TestWithCaddyRequiresAFile(t *testing.T) {
 	ctx := context.Background()
 
@@ -62,23 +62,19 @@ func TestWithCaddyRequiresAFile(t *testing.T) {
 		root *dagger.File
 	}{
 		{name: "no files"},
-		{name: "app only", app: &dagger.File{}},
-		{name: "root only", root: &dagger.File{}},
 	}
 
-	// Only the nil/nil case is expected to fail; app/root placeholders prove
-	// the guard order puts the nil check before any engine access.
 	for _, test := range tests {
-		if test.name == "no files" {
+		t.Run(test.name, func(t *testing.T) {
 			m := &Daggerer{}
-			_, err := m.WithCaddy(ctx, nil, nil)
+			_, err := m.WithCaddy(ctx, test.app, test.root)
 			if err == nil || !strings.Contains(err.Error(), "with-caddy requires app-caddyfile, caddyfile, or both") {
-				t.Fatalf("%s: expected missing-file error, got %v", test.name, err)
+				t.Fatalf("expected missing-file error, got %v", err)
 			}
 			if m.AppCaddyfile != nil || m.RootCaddyfile != nil || m.AppCaddyfileBase != "" {
-				t.Fatalf("%s: failed WithCaddy must not mutate the Daggerer", test.name)
+				t.Fatal("failed WithCaddy must not mutate the Daggerer")
 			}
-		}
+		})
 	}
 }
 
@@ -267,6 +263,148 @@ func TestHasCaddy(t *testing.T) {
 	}
 }
 
+// TestValidateScriptInCaddyContainer runs the real provisioning script inside
+// the real caddy:2-alpine validation container against a synced-tree fixture:
+// the full validateCaddy behavior minus the SSH target.
+func TestValidateScriptInCaddyContainer(t *testing.T) {
+	ctx := context.Background()
+	skipWithoutEngine(t, ctx)
+
+	// A synced tree as it would be pulled from a bootstrapped target: an
+	// existing root Caddyfile.
+	bootstrapped := dag.Directory().WithNewFile("Caddyfile", fixtureRootCaddyfile)
+
+	tests := []struct {
+		name      string
+		synced    *dagger.Directory
+		app       string
+		root      bool
+		wantValid bool
+	}{
+		{
+			name:      "bootstrap root and app against empty target tree",
+			synced:    dag.Directory(),
+			app:       "horsemoneyball.caddy",
+			root:      true,
+			wantValid: true,
+		},
+		{
+			name:      "app only against bootstrapped tree",
+			synced:    bootstrapped,
+			app:       "horsemoneyball.caddy",
+			wantValid: true,
+		},
+		{
+			name:   "app only against empty tree must fail: no root Caddyfile",
+			synced: dag.Directory(),
+			app:    "horsemoneyball.caddy",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			m := &Daggerer{AppCaddyfileBase: test.app}
+			if test.app != "" {
+				m.AppCaddyfile = newCaddyFixture(t, ctx, test.app, fixtureAppCaddyfile)
+			}
+			if test.root {
+				m.RootCaddyfile = newCaddyFixture(t, ctx, "Caddyfile", fixtureRootCaddyfile)
+			}
+
+			script := caddyProvisionCommand(test.root, test.app, false)
+			container := m.caddyValidationContainer(test.synced)
+			_, err := container.WithExec([]string{"sh", "-c", script}).Sync(ctx)
+
+			if test.wantValid && err != nil {
+				t.Fatalf("expected the provisioned config to validate, got: %v", err)
+			}
+			if !test.wantValid && err == nil {
+				t.Fatal("expected failure: the target tree has no Caddyfile to hang the site off")
+			}
+		})
+	}
+}
+
+// TestCaddyProvisionCommand pins the shared provisioning script: the exact
+// same generated script runs in the validation container (remote=false) and
+// on the target (remote=true).
+func TestCaddyProvisionCommand(t *testing.T) {
+	tests := []struct {
+		name     string
+		hasRoot  bool
+		appFile  string
+		remote   bool
+		contains []string
+		absent   []string
+	}{
+		{
+			name:    "bootstrap root and app, validation container",
+			hasRoot: true,
+			appFile: "horsemoneyball.caddy",
+			contains: []string{
+				"set -e",
+				"mkdir -p '/etc/caddy/sites-available' '/etc/caddy/sites-enabled' '/var/log/caddy'",
+				"cp '/tmp/caddy-stage/Caddyfile' '/etc/caddy/Caddyfile'",
+				"cp '/tmp/caddy-stage/horsemoneyball.caddy' '/etc/caddy/sites-available/horsemoneyball.caddy'",
+				"ln -sfn '../sites-available/horsemoneyball.caddy' '/etc/caddy/sites-enabled/horsemoneyball.caddy'",
+				"caddy validate --config '/etc/caddy/Caddyfile' --adapter caddyfile",
+			},
+			absent: []string{"systemctl", "$HOME", "rm -rf"},
+		},
+		{
+			name:    "app only against existing root, validation container",
+			appFile: "vinylkeeper.caddy",
+			contains: []string{
+				"test -f '/etc/caddy/Caddyfile' || {",
+				"bootstrap the target with --caddyfile first",
+				"cp '/tmp/caddy-stage/vinylkeeper.caddy' '/etc/caddy/sites-available/vinylkeeper.caddy'",
+			},
+			absent: []string{
+				"cp '/tmp/caddy-stage/Caddyfile'",
+				"systemctl",
+			},
+		},
+		{
+			name:    "root only single-service target, remote",
+			hasRoot: true,
+			remote:  true,
+			contains: []string{
+				"cp '/tmp/caddy-stage/Caddyfile' '/etc/caddy/Caddyfile'",
+				"systemctl reload caddy || systemctl restart caddy",
+				"ln -sfn /etc/caddy \"$HOME\"/caddy",
+				"rm -rf '/tmp/caddy-stage'",
+			},
+			absent: []string{"sites-available/"},
+		},
+		{
+			name:    "app only, remote",
+			appFile: "the-shroommelier.v2.caddy",
+			remote:  true,
+			contains: []string{
+				"ln -sfn '../sites-available/the-shroommelier.v2.caddy' '/etc/caddy/sites-enabled/the-shroommelier.v2.caddy'",
+				"systemctl reload caddy || systemctl restart caddy",
+			},
+			absent: []string{"cp '/tmp/caddy-stage/Caddyfile'"},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			script := caddyProvisionCommand(test.hasRoot, test.appFile, test.remote)
+			for _, want := range test.contains {
+				if !strings.Contains(script, want) {
+					t.Errorf("script missing %q:\n%s", want, script)
+				}
+			}
+			for _, banned := range test.absent {
+				if strings.Contains(script, banned) {
+					t.Errorf("script must not contain %q:\n%s", banned, script)
+				}
+			}
+		})
+	}
+}
+
 // TestServeCaddyRequiresConfiguredFiles covers the standalone entry point's
 // guard: without files (here or chained via with-caddy) it must fail before
 // touching SSH.
@@ -286,84 +424,6 @@ func TestServeCaddyRequiresConfiguredFiles(t *testing.T) {
 			err := (&Daggerer{}).ServeCaddy(ctx, test.app, test.root, "user@target", 22, nil, nil)
 			if err == nil || !strings.Contains(err.Error(), "serve-caddy requires app-caddyfile or caddyfile") {
 				t.Fatalf("expected missing-file guard error, got %v", err)
-			}
-		})
-	}
-}
-
-// TestServeCaddyStepOrder pins the standalone serve-caddy pipeline order:
-// files are configured first, then the shared SSH client is built.
-func TestServeCaddyStepOrder(t *testing.T) {
-	ctx := context.Background()
-	skipWithoutEngine(t, ctx)
-
-	app := newCaddyFixture(t, ctx, "horsemoneyball.caddy", fixtureAppCaddyfile)
-
-	tests := []struct {
-		name     string
-		app      *dagger.File
-		root     *dagger.File
-		wantStep string
-	}{
-		{name: "app file reaches SSH client setup", app: app, wantStep: "newSSHClient"},
-	}
-
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			err := (&Daggerer{}).ServeCaddy(ctx, test.app, test.root, "user@target", 22, nil, nil)
-			if err == nil || !strings.Contains(err.Error(), test.wantStep) {
-				t.Fatalf("expected pipeline to stop at %q, got %v", test.wantStep, err)
-			}
-		})
-	}
-}
-
-// TestValidateCaddyStepOrder pins the private pre-build DAG step order:
-// remoteCaddyInstalled is the first step, so a target without caddy fails
-// before any tree sync or container work.
-func TestValidateCaddyStepOrder(t *testing.T) {
-	tests := []struct {
-		name     string
-		params   caddyParams
-		wantStep string
-	}{
-		{
-			name:     "first step is the installed check",
-			params:   caddyParams{ctx: context.Background()},
-			wantStep: "remoteCaddyInstalled",
-		},
-	}
-
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			err := (&Daggerer{}).validateCaddy(test.params)
-			if err == nil || !strings.Contains(err.Error(), test.wantStep) {
-				t.Fatalf("expected pipeline to stop at %q, got %v", test.wantStep, err)
-			}
-		})
-	}
-}
-
-// TestServeCaddyPrivateStepOrder pins the private post-compose DAG step:
-// serveCaddy runs the apply logic itself.
-func TestServeCaddyPrivateStepOrder(t *testing.T) {
-	tests := []struct {
-		name     string
-		params   caddyParams
-		wantStep string
-	}{
-		{
-			name:     "apply step runs",
-			params:   caddyParams{ctx: context.Background()},
-			wantStep: "serveCaddy",
-		},
-	}
-
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			err := (&Daggerer{}).serveCaddy(test.params)
-			if err == nil || !strings.Contains(err.Error(), test.wantStep) {
-				t.Fatalf("expected pipeline to stop at %q, got %v", test.wantStep, err)
 			}
 		})
 	}
